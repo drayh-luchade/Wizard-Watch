@@ -145,6 +145,16 @@
   /* ---------- Sidebar legend icons ---------- */
   .icon-station{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;
     background:var(--gold);box-shadow:0 0 3px rgba(232,184,75,0.7);}
+  .flow-canvas{position:absolute;left:0;top:0;pointer-events:none;}
+  .icon-flow{width:15px;height:3px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle;
+    background:linear-gradient(90deg,rgba(95,208,200,0.1),#5FD0C8 45%,#E056E0);}
+  .icon-night{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle;
+    background:linear-gradient(90deg,#F3EFE4 50%,#1d2142 50%);border:1px solid rgba(0,0,0,0.35);}
+  #moon-card{position:absolute;left:12px;bottom:12px;z-index:30;display:flex;align-items:center;gap:8px;
+    padding:5px 12px 5px 7px;background:rgba(19,26,74,0.88);border:1px solid rgba(232,184,75,0.4);border-radius:12px;
+    color:var(--white);font-size:0.74rem;line-height:1.25;pointer-events:none;}
+  #moon-card b{display:block;color:var(--gold);font-family:'Fraunces',serif;font-size:0.82rem;font-weight:600;}
+  @media (max-width:720px){ #moon-card{bottom:auto;top:12px;left:60px;} }
   .icon-bird{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;
     background:#4FA8A0;box-shadow:0 0 3px rgba(79,168,160,0.7);}
   .bird-arrow{display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 2px rgba(0,0,0,0.6));}
@@ -241,10 +251,21 @@
           </span></p>
         <span class="status live" id="bird-status">loading live data…</span></div>
       </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-birdflow" checked>
+        <div><label for="toggle-birdflow"><span class="icon-flow"></span>Bird Flow</label>
+        <p>Animated particles drifting along the real bird-movement vectors from the radar network, blended between sites. Warmer, brighter streaks = heavier migration. Directions are real; the motion is time-lapsed (about 4 hours of flight per second).</p></div>
+      </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-night" checked>
+        <div><label for="toggle-night"><span class="icon-night"></span>Day / Night</label>
+        <p>Where it is dark right now, computed from the clock — useful context, since these birds migrate at night.</p></div>
+      </div>
       <div class="legend-note">
-        Baseline: real USDA state data spread across each state with Natural Earth habitat layers (US only; no biodiversity term yet). Anomalies and warnings are live — NWS alerts every 2 minutes, Open-Meteo every 30 — and nothing live is stored; it's fetched in your browser each visit. Zone shapes are only as detailed as the 43-station network. Basemap is a stylized outline, not geographically precise. Watershed boundaries: Commission for Environmental Cooperation (CEC) 2010, North American Environmental Atlas – Watersheds, NRCan/INEGI/USGS, CC BY 4.0. Bird migration data: Purdue AeroEco Lab (aeroecolab.com), derived from NEXRAD weather radar (Van Doren &amp; Horton 2018, <i>Science</i> 361:1115–1118).
+        Baseline: real USDA state data spread across each state with Natural Earth habitat layers (US only; no biodiversity term yet). Anomalies and warnings are live — NWS alerts every 2 minutes, Open-Meteo every 30 — and nothing live is stored; it's fetched in your browser each visit. Zone shapes are only as detailed as the 43-station network. Basemap is a stylized outline, not geographically precise. Watershed boundaries: Commission for Environmental Cooperation (CEC) 2010, North American Environmental Atlas – Watersheds, NRCan/INEGI/USGS, CC BY 4.0. Moon phase and day/night shading are computed locally and are approximate. Bird migration data: Purdue AeroEco Lab (aeroecolab.com), derived from NEXRAD weather radar (Van Doren &amp; Horton 2018, <i>Science</i> 361:1115–1118).
       </div>
     </aside>
+    <div id="moon-card"><span id="moon-icon"></span><div><b id="moon-name">Moon</b><span id="moon-detail"></span></div></div>
     <button id="sidebar-toggle" title="Collapse layers panel" aria-label="Toggle layers panel">
       <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
@@ -632,18 +653,47 @@ async function fetchYearWindow(year, now) {
   const j = await r.json();
   return Array.isArray(j) ? j : [j];
 }
+// Run at most `limit` requests at once; results stay index-aligned with the inputs (failures kept, not dropped).
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length); let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      try { out[i] = { ok: true, v: await fn(items[i]) }; } catch (e) { out[i] = { ok: false, e }; }
+    }
+  }));
+  return out;
+}
+// Bump this whenever the stored shape changes. (v2 had `yearly`; v3 has yearlyTemp/yearlyWind — reading a
+// v2 entry with v3 code is what crashed the station charts for returning visitors.)
+const CLIM_KEY_PREFIX = 'ww_clim_v3|';
+const CLIM_FAIL_KEY = 'ww_fail_clim', CLIM_COOLDOWN_MS = 10 * 60 * 1000;
+function validClim(stats) {
+  return Array.isArray(stats) && stats.length === stations.length &&
+    stats.every(s => s && Array.isArray(s.yearlyTemp) && Array.isArray(s.yearlyWind) && Array.isArray(s.years));
+}
 async function getClimatology() {
   const now = new Date();
-  const key = 'ww_clim_v2|' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-  pruneClimCache(key);
+  const key = CLIM_KEY_PREFIX + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  pruneClimCache(key); // also deletes every older-version entry
   try {
     const cached = JSON.parse(localStorage.getItem(key));
-    if (cached && Date.now() - cached.ts < CLIM_TTL_MS) return cached.stats;
+    if (cached && Date.now() - cached.ts < CLIM_TTL_MS && validClim(cached.stats)) return cached.stats;
   } catch (e) {}
+  // Circuit breaker: after a failed baseline fetch, leave Open-Meteo's weighted rate limits alone for a few minutes.
+  try {
+    const failedAt = +localStorage.getItem(CLIM_FAIL_KEY);
+    if (failedAt && Date.now() - failedAt < CLIM_COOLDOWN_MS) throw new Error('baseline cooling down after a failed fetch');
+  } catch (e) { if (/cooling/.test(e.message)) throw e; }
   const years = Array.from({ length: CLIM_YEARS }, (_, i) => now.getFullYear() - 1 - i);
-  const results = (await Promise.allSettled(years.map(y => fetchYearWindow(y, now))))
-    .filter(r => r.status === 'fulfilled').map(r => r.value);
-  if (results.length < 5) throw new Error('not enough climatology years');
+  const settled = await mapLimit(years, 3, y => fetchYearWindow(y, now));
+  const good = settled.filter(s => s.ok).length;
+  if (good < 4) {
+    try { localStorage.setItem(CLIM_FAIL_KEY, String(Date.now())); } catch (e) {}
+    const rl = settled.find(s => !s.ok && /429/.test(String(s.e && s.e.message)));
+    throw new Error(rl ? 'archive 429 (rate limited)' : `only ${good} of ${years.length} baseline years loaded`);
+  }
+  const results = settled.map(s => (s.ok ? s.v : null)); // index-aligned with `years`; a failed year stays null
   const stats = stations.map((_, i) => {
     const T = [], W = [];
     // One same-week mean per year, oldest first, for BOTH variables — real data, used for station
@@ -664,7 +714,7 @@ async function getClimatology() {
     });
     return { temp: meanSd(T, 2), wind: meanSd(W, 2), yearlyTemp, yearlyWind, years: years.slice().reverse() };
   });
-  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), stats })); } catch (e) {}
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), stats })); localStorage.removeItem(CLIM_FAIL_KEY); } catch (e) {}
   return stats;
 }
 
@@ -769,8 +819,8 @@ function stationPopup(r, n) {
 // The final bar is today's actual reading (not a same-week average like the rest), so the chart
 // always reaches the current year instead of stopping at last year's data.
 function sparkChart(years, yearly, mu, currentYear, currentVal) {
-  const allYears = [...years, currentYear];
-  const allVals = [...yearly, currentVal];
+  const allYears = [...(years || []), currentYear];
+  const allVals = [...(yearly || []), currentVal];
   const w = 190, h = 54, pad = 14, n = allVals.length;
   const vals = allVals.filter(v => v != null);
   if (vals.length < 2) return '';
@@ -793,6 +843,7 @@ function sparkChart(years, yearly, mu, currentYear, currentVal) {
     bars + `</svg>`;
 }
 function stationDashboard(r) {
+  if (r.noBaseline) return stationBasic(r);
   const isTemp = r.topName === 'temperature';
   const cls = classify(isTemp ? r.zT : r.topName === 'wind' ? r.zW : r.topZ);
   const nowYear = new Date().getFullYear();
@@ -806,75 +857,103 @@ function stationDashboard(r) {
            : '<i>Not enough years of history for this station yet</i>');
 }
 
+function describeError(e) {
+  const m = String((e && e.message) || e);
+  if (/cooling/.test(m)) return 'baseline paused briefly after a failed fetch';
+  if (/429/.test(m)) return 'rate-limited by Open-Meteo (free-tier limit)';
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'could not reach Open-Meteo';
+  return 'internal error: ' + m;
+}
+function stationBasic(r) {
+  return `<b>${r.st.name}</b><br><i>8-yr baseline isn't available right now, so this station can't be classified.</i><br>` +
+    `Today's mean temp: ${r.tMid.toFixed(0)}°F<br>Peak wind: ${r.wMax.toFixed(0)} mph<br>` +
+    `3-hr pressure change: ${(-r.drop3).toFixed(1)} hPa<br>Humidity: ${r.d.current.relative_humidity_2m}%`;
+}
 async function loadAnomalies() {
   const statusEl = document.getElementById('anomaly-status');
   try {
-    const [clim, res] = await Promise.all([
+    // allSettled: a failed baseline must not throw away a perfectly good current-conditions response.
+    const [climR, resR] = await Promise.allSettled([
       getClimatology(),
       fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LATS}&longitude=${LNGS}` +
         `&current=temperature_2m,relative_humidity_2m,pressure_msl,wind_speed_10m&hourly=pressure_msl` +
         `&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max&past_days=1&forecast_days=1&${UNITS}`)
     ]);
-    if (!res.ok) throw new Error('forecast ' + res.status);
-    const j = await res.json();
+    if (resR.status !== 'fulfilled') throw resR.reason;
+    if (!resR.value.ok) throw new Error('forecast ' + resR.value.status);
+    const j = await resR.value.json();
     const data = Array.isArray(j) ? j : [j];
+    const clim = climR.status === 'fulfilled' ? climR.value : null;
+    if (!clim) console.warn('Baseline climatology unavailable:', climR.reason);
 
     const rows = stations.map((st, i) => {
-      const d = data[i], c = clim[i];
-      if (!d || !c || !c.temp || !c.wind) return null;
+      const d = data[i];
+      if (!d || !d.daily || !d.current) return null;
+      const c = clim && clim[i];
       const dayIdx = d.daily.time.indexOf(d.current.time.slice(0, 10));
       const di = dayIdx >= 0 ? dayIdx : d.daily.time.length - 1;
       const tMid = (d.daily.temperature_2m_max[di] + d.daily.temperature_2m_min[di]) / 2;
       const wMax = d.daily.wind_speed_10m_max[di];
-      const zT = (tMid - c.temp.mu) / c.temp.sd;
-      const zW = (wMax - c.wind.mu) / c.wind.sd;
       // Pressure tendency: a fall of ~4 hPa / 3 h is the conventional "rapidly falling" mark,
       // so it is scaled to z = 2 at that point.
       const hi = d.hourly.time.indexOf(d.current.time.slice(0, 13) + ':00');
       const drop3 = hi >= 3 ? d.hourly.pressure_msl[hi - 3] - d.hourly.pressure_msl[hi] : 0;
+      if (!c || !c.temp || !c.wind) return { st, d, tMid, wMax, drop3, noBaseline: true, topName: '—', topZ: 0, zT: 0, zW: 0 };
+      const zT = (tMid - c.temp.mu) / c.temp.sd;
+      const zW = (wMax - c.wind.mu) / c.wind.sd;
       const zP = drop3 / 2;
       const comps = [['temperature', Math.abs(zT)], ['wind', Math.max(zW, 0)], ['pressure drop', Math.max(zP, 0)]];
       const [topName, topZ] = comps.reduce((a, b) => (b[1] > a[1] ? b : a));
       return { st, d, tMid, wMax, zT, zW, drop3, topName, topZ, mu: c.temp.mu, sd: c.temp.sd,
         windMu: c.wind.mu, windSd: c.wind.sd, yearlyTemp: c.yearlyTemp, yearlyWind: c.yearlyWind, years: c.years };
     }).filter(Boolean);
+    const baseRows = rows.filter(r => !r.noBaseline);
 
     anomalyLayer.clearLayers(); // discard last cycle's zones
     stationLayer.clearLayers();
-    // WaterWatch-style colour-coded dots, one per station, sized/coloured by how far off normal it is —
-    // the actual network behind the interpolated zones above, made visible the way USGS station maps do.
+    // WaterWatch-style colour-coded dots, one per station, sized/coloured by how far off normal it is.
+    // Gray = no baseline yet (current conditions only). One bad station can never take the others down.
     const classColor = { 'Normal': '#8FAE83', 'Above normal': '#E8B84B', 'Below normal': '#7FA8C9',
       'Much above normal': '#E08A3C', 'Much below normal': '#4F7FA8', 'Extreme high': '#FF3B3B', 'Extreme low': '#A63DFF' };
     rows.forEach(r => {
-      const cls = classify(r.topName === 'temperature' ? r.zT : r.topZ);
-      const color = classColor[cls] || '#8FAE83';
-      L.circleMarker([r.st.lat, r.st.lng], {
-        radius: 5 + Math.min(4, Math.abs(r.topZ)), color: '#12160F', weight: 1, fillColor: color, fillOpacity: 0.9
-      }).bindPopup(stationDashboard(r)).addTo(stationLayer);
+      try {
+        const base = !r.noBaseline;
+        const color = base ? (classColor[classify(r.topName === 'temperature' ? r.zT : r.topZ)] || '#8FAE83') : '#7C8A94';
+        L.circleMarker([r.st.lat, r.st.lng], {
+          radius: base ? 5 + Math.min(4, Math.abs(r.topZ)) : 5, color: '#12160F', weight: 1, fillColor: color, fillOpacity: base ? 0.9 : 0.75
+        }).bindPopup(base ? stationDashboard(r) : stationBasic(r)).addTo(stationLayer);
+      } catch (err) { console.error('Station marker failed for', r.st.name, err); }
     });
-    const hot = rows.filter(r => r.topZ >= ANOMALY_Z).sort((x, y) => y.topZ - x.topZ);
-    const rings = anomalyRings(rows);
+    const hot = baseRows.filter(r => r.topZ >= ANOMALY_Z).sort((x, y) => y.topZ - x.topZ);
+    const rings = baseRows.length ? anomalyRings(baseRows) : [];
     if (rings.length) {
       // One polygon (evenodd) so enclosed rings become holes. Shapes come from the interpolated field.
       const poly = L.polygon(rings, { color: '#FF3B3B', weight: 1.2, dashArray: '2,4', fillOpacity: 0.55, bubblingMouseEvents: false });
       poly.on('add', () => { const el = poly.getElement(); if (el) el.setAttribute('fill', 'url(#stipple)'); });
       poly.on('click', ev => L.popup().setLatLng(ev.latlng)
-        .setContent(stationPopup(nearestStation(rows, ev.latlng), rows.length)).openOn(map));
+        .setContent(stationPopup(nearestStation(baseRows, ev.latlng), baseRows.length)).openOn(map));
       poly.addTo(anomalyLayer);
       const el = poly.getElement(); if (el) el.setAttribute('fill', 'url(#stipple)');
     }
-    const top = rows.slice().sort((x, y) => y.topZ - x.topZ)[0];
-    statusEl.textContent = `live — ${rows.length} stations, ${hot.length} flagged`;
-    liveTicker.anomalies = [hot.length === 0
-      ? `ANOMALY WATCH — ${rows.length} stations checked, none beyond ${ANOMALY_Z}σ` +
-        (top ? ` (largest: ${top.st.name}, ${top.topName} ${top.topZ.toFixed(1)}σ)` : '')
-      : `ANOMALY WATCH — ${hot.length} station${hot.length > 1 ? 's' : ''} beyond ${ANOMALY_Z}σ: ` +
-        hot.slice(0, 6).map(r => `${r.st.name} (${r.topName} ${r.topZ.toFixed(1)}σ)`).join(', ') +
-        (hot.length > 6 ? `, +${hot.length - 6} more` : '')];
+    if (!baseRows.length) {
+      const why = describeError(climR.reason);
+      statusEl.textContent = `partial — baseline ${/rate/.test(why) ? 'rate-limited' : 'unavailable'}, current conditions only`;
+      liveTicker.anomalies = [`ANOMALY WATCH — baseline history unavailable (${why}); showing current conditions only, will retry.`];
+    } else {
+      const top = baseRows.slice().sort((x, y) => y.topZ - x.topZ)[0];
+      statusEl.textContent = `live — ${baseRows.length} stations, ${hot.length} flagged`;
+      liveTicker.anomalies = [hot.length === 0
+        ? `ANOMALY WATCH — ${baseRows.length} stations checked, none beyond ${ANOMALY_Z}σ` +
+          (top ? ` (largest: ${top.st.name}, ${top.topName} ${top.topZ.toFixed(1)}σ)` : '')
+        : `ANOMALY WATCH — ${hot.length} station${hot.length > 1 ? 's' : ''} beyond ${ANOMALY_Z}σ: ` +
+          hot.slice(0, 6).map(r => `${r.st.name} (${r.topName} ${r.topZ.toFixed(1)}σ)`).join(', ') +
+          (hot.length > 6 ? `, +${hot.length - 6} more` : '')];
+    }
   } catch (e) {
     console.error('Anomaly check failed', e);
-    statusEl.textContent = 'unavailable right now';
-    liveTicker.anomalies = ['Anomaly check unavailable — could not reach Open-Meteo.'];
+    const why = describeError(e);
+    statusEl.textContent = /rate/.test(why) ? 'rate-limited — retrying later' : /reach/.test(why) ? 'unavailable (network)' : 'error — see console';
+    liveTicker.anomalies = [`Anomaly check unavailable — ${why}.`];
   }
   renderTicker();
   stampLastUpdated();
@@ -974,7 +1053,7 @@ async function loadBirds() {
     const rows = parseCsv(await res.text());
     birdLayer.clearLayers();
     let offline = 0, active = 0, matched = 0, staleMin = 0;
-    const top = [];
+    const top = [], vecs = [];
     rows.forEach(row => {
       const st = nexradStations[row.radar_id];
       if (!st) return;
@@ -995,8 +1074,10 @@ async function loadBirds() {
       L.marker([st.lat, st.lon], { icon: birdIcon(bucket.color, hasArrow ? parseFloat(row.direction) : 0, hasArrow) })
         .bindPopup(birdPopup(row.radar_id, st, row, (Date.now() - validTime) / 60000)).addTo(birdLayer);
       if (density > 0) top.push({ id: row.radar_id, name: st.name, state: st.state, density });
+      if (!isNaN(density)) vecs.push({ lat: st.lat, lon: st.lon, u: parseFloat(row.avg_u_speed) || 0, v: parseFloat(row.avg_v_speed) || 0, density: Math.max(0, density) });
     });
     top.sort((a, b) => b.density - a.density);
+    flowSetData(vecs);
     const staleTag = staleMin > 180 ? ` (data ~${Math.round(staleMin / 60)}h old)` : '';
     statusEl.textContent = `live — ${active} active, ${offline} offline${staleTag}`;
     liveTicker.birds = [top.length === 0
@@ -1024,7 +1105,7 @@ async function manualRefresh() {
   refreshing = true;
   refreshBtn.disabled = true;
   refreshBtn.classList.add('spinning');
-  try { await Promise.all([loadWarnings(), loadAnomalies(), loadBirds()]); }
+  try { updateSky(); await Promise.all([loadWarnings(), loadAnomalies(), loadBirds()]); }
   finally { refreshBtn.disabled = false; refreshBtn.classList.remove('spinning'); refreshing = false; }
 }
 refreshBtn.addEventListener('click', manualRefresh);
@@ -1036,6 +1117,168 @@ loadBirds();
 setInterval(() => { if (!document.hidden) loadWarnings(); }, REFRESH_WARNINGS_MS);
 setInterval(() => { if (!document.hidden) loadAnomalies(); }, REFRESH_ANOMALY_MS);
 setInterval(() => { if (!document.hidden) loadBirds(); }, REFRESH_BIRDS_MS);
+
+/* ===== FLOW+SKY BEGIN ===== */
+/* ---------- BIRD FLOW: animated particles following the real radar-derived bird movement vectors ----------
+   Each active NEXRAD site reports the average movement of birds as east/west (u) and north/south (v)
+   components in m/s. Those vectors are blended across the country with a Gaussian kernel into a coarse grid;
+   particles are spawned where migration density is high and advected along the interpolated field, so
+   direction and relative intensity are real. Speed is TIME-LAPSED (FLOW.timeScale) — real flight speeds
+   would be invisible at continental scale — and the sidebar says so. */
+const FLOW = { lat0: 24, lat1: 50, lon0: -125, lon1: -66, step: 0.5, sigmaKm: 220, cutKm: 650,
+  timeScale: 14400, nParticles: window.innerWidth < 720 ? 700 : 1500, trail: 8, ref: 10 };
+const flowPaneEl = map.createPane('flowPane'); flowPaneEl.style.zIndex = 450; flowPaneEl.style.pointerEvents = 'none';
+const flowS = { grid: null, particles: [], canvas: null, ctx: null, running: false, paused: false, last: 0, lastDraw: 0, raf: 0 };
+const FLOW_COLORS = [null, '#5FD0C8', '#F2C94C', '#F2994A', '#E056E0'];
+const FLOW_ALPHA = [0, 0.5, 0.7, 0.85, 0.95];
+const flowBucket = d => d < 0.3 ? 0 : d <= 4 ? 1 : d <= 8 ? 2 : d <= 13 ? 3 : 4;
+
+function flowSetData(vectors) {
+  const nx = Math.round((FLOW.lon1 - FLOW.lon0) / FLOW.step) + 1, ny = Math.round((FLOW.lat1 - FLOW.lat0) / FLOW.step) + 1;
+  const U = new Float32Array(nx * ny), V = new Float32Array(nx * ny), D = new Float32Array(nx * ny), C = new Float32Array(nx * ny);
+  const s2 = 2 * FLOW.sigmaKm ** 2, cut2 = FLOW.cutKm ** 2;
+  for (let j = 0; j < ny; j++) {
+    const lat = FLOW.lat0 + j * FLOW.step, cosl = Math.cos(lat * Math.PI / 180);
+    for (let i = 0; i < nx; i++) {
+      const lon = FLOW.lon0 + i * FLOW.step;
+      let sg = 0, sgd = 0, su = 0, sv = 0, sw = 0;
+      for (const p of vectors) {
+        const dy = (lat - p.lat) * 111, dx = (lon - p.lon) * 111 * cosl, d2 = dx * dx + dy * dy;
+        if (d2 > cut2) continue;
+        const g = Math.exp(-d2 / s2), wv = g * p.density;
+        sg += g; sgd += wv; su += wv * p.u; sv += wv * p.v; sw += wv; // vectors are density-weighted; zero-density sites still pull density down
+      }
+      const k = j * nx + i;
+      C[k] = Math.min(1, sg);                // how well radar coverage reaches this cell
+      D[k] = sg > 1e-6 ? sgd / sg : 0;       // interpolated migration density, birds/km³
+      if (sw > 1e-6) { U[k] = su / sw; V[k] = sv / sw; }
+    }
+  }
+  flowS.grid = { nx, ny, U, V, D, C };
+}
+function flowSample(lat, lon) {
+  const g = flowS.grid; if (!g) return null;
+  const fx = (lon - FLOW.lon0) / FLOW.step, fy = (lat - FLOW.lat0) / FLOW.step;
+  if (fx < 0 || fy < 0 || fx >= g.nx - 1 || fy >= g.ny - 1) return null;
+  const i = Math.floor(fx), j = Math.floor(fy), tx = fx - i, ty = fy - j;
+  const k00 = j * g.nx + i, k10 = k00 + 1, k01 = k00 + g.nx, k11 = k01 + 1;
+  const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
+  const bl = A => A[k00] * w00 + A[k10] * w10 + A[k01] * w01 + A[k11] * w11;
+  return { u: bl(g.U), v: bl(g.V), d: bl(g.D), c: bl(g.C) };
+}
+function flowSpawn(p) {
+  for (let t = 0; t < 12; t++) {
+    const lat = FLOW.lat0 + Math.random() * (FLOW.lat1 - FLOW.lat0), lon = FLOW.lon0 + Math.random() * (FLOW.lon1 - FLOW.lon0);
+    const s = flowSample(lat, lon);
+    if (s && Math.random() < Math.min(1, (s.d * s.c) / FLOW.ref)) {   // more particles where migration is heavier
+      p.lat = lat; p.lon = lon; p.age = 0; p.max = 70 + Math.random() * 90; p.trail = []; p.on = true; return;
+    }
+  }
+  p.on = false;
+}
+function flowTick(ts) {
+  if (!flowS.running) return;
+  flowS.raf = requestAnimationFrame(flowTick);
+  if (document.hidden || flowS.paused || !flowS.grid) { flowS.last = ts; return; }
+  if (ts - flowS.lastDraw < 30) return;                              // ~33 fps is plenty
+  const dt = Math.min((ts - flowS.last) / 1000, 0.08); flowS.last = ts; flowS.lastDraw = ts;
+  const sim = dt * FLOW.timeScale, W = flowS.canvas.width, H = flowS.canvas.height, buckets = new Map();
+  for (const p of flowS.particles) {
+    if (!p.on) { if (Math.random() < 0.15) flowSpawn(p); continue; }
+    const s = flowSample(p.lat, p.lon);
+    if (!s || s.d * s.c < 0.15 || ++p.age > p.max) { flowSpawn(p); continue; }
+    p.lat += (s.v * sim) / 111000;
+    p.lon += (s.u * sim) / (111000 * Math.cos(p.lat * Math.PI / 180));
+    const pt = map.latLngToContainerPoint([p.lat, p.lon]);
+    if (pt.x < -20 || pt.y < -20 || pt.x > W + 20 || pt.y > H + 20) { p.trail.length = 0; continue; }
+    const t = p.trail; t.push(pt.x, pt.y);
+    if (t.length > FLOW.trail * 2) t.splice(0, 2);
+    const b = flowBucket(s.d), n = t.length / 2;
+    if (!b || n < 2) continue;
+    for (let k = 1; k < n; k++) {                                     // segments batched per (intensity, fade) into one path each
+      const a = Math.max(1, Math.round(k / (n - 1) * 4)), key = b * 10 + a;
+      let e = buckets.get(key); if (!e) { e = { path: new Path2D(), b, a }; buckets.set(key, e); }
+      e.path.moveTo(t[2 * k - 2], t[2 * k - 1]); e.path.lineTo(t[2 * k], t[2 * k + 1]);
+    }
+  }
+  const ctx = flowS.ctx; ctx.clearRect(0, 0, W, H); ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+  for (const e of buckets.values()) { ctx.globalAlpha = FLOW_ALPHA[e.b] * (e.a / 4); ctx.strokeStyle = FLOW_COLORS[e.b]; ctx.stroke(e.path); }
+  ctx.globalAlpha = 1;
+}
+function flowReset() {
+  const sz = map.getSize(); flowS.canvas.width = sz.x; flowS.canvas.height = sz.y;
+  L.DomUtil.setPosition(flowS.canvas, map.containerPointToLayerPoint([0, 0]));
+  flowS.particles.forEach(p => { p.trail = []; });
+}
+function flowStart() {
+  if (flowS.running) return;
+  if (!flowS.canvas) { flowS.canvas = L.DomUtil.create('canvas', 'flow-canvas'); flowPaneEl.appendChild(flowS.canvas); flowS.ctx = flowS.canvas.getContext('2d'); }
+  flowS.canvas.style.display = '';
+  flowS.particles = Array.from({ length: FLOW.nParticles }, () => ({ on: false, lat: 0, lon: 0, age: 0, max: 100, trail: [] }));
+  flowReset(); flowS.running = true; flowS.paused = false; flowS.last = performance.now();
+  flowS.raf = requestAnimationFrame(flowTick);
+}
+function flowStop() {
+  flowS.running = false; cancelAnimationFrame(flowS.raf);
+  if (flowS.canvas) { flowS.ctx.clearRect(0, 0, flowS.canvas.width, flowS.canvas.height); flowS.canvas.style.display = 'none'; }
+}
+// Trails are stored in screen pixels, so panning/zooming clears them and the canvas is re-anchored afterwards.
+map.on('movestart zoomstart', () => { flowS.paused = true; if (flowS.ctx) flowS.ctx.clearRect(0, 0, flowS.canvas.width, flowS.canvas.height); });
+map.on('moveend zoomend resize', () => { if (flowS.canvas && flowS.running) { flowReset(); flowS.paused = false; } });
+// The sidebar collapse resizes #map without a window resize; keep Leaflet (and the flow canvas) in step.
+let _rszRaf = 0;
+new ResizeObserver(() => { cancelAnimationFrame(_rszRaf); _rszRaf = requestAnimationFrame(() => map.invalidateSize({ animate: false })); }).observe(document.getElementById('map'));
+const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const flowToggle = document.getElementById('toggle-birdflow');
+if (reduceMotion) flowToggle.checked = false;   // respect the OS "reduce motion" setting; the user can still opt in
+flowToggle.addEventListener('change', e => e.target.checked ? flowStart() : flowStop());
+if (flowToggle.checked) flowStart();
+
+/* ---------- SKY: moon phase + day/night terminator (computed locally from the clock; approximate) ---------- */
+const RAD = Math.PI / 180;
+function moonPhase(date) {
+  const jd = date.getTime() / 86400000 + 2440587.5;          // Julian date
+  let f = ((jd - 2451550.1) / 29.530588853) % 1; if (f < 0) f += 1;   // days since the 2000-01-06 new moon / synodic month
+  const names = ['New Moon', 'Waxing Crescent', 'First Quarter', 'Waxing Gibbous', 'Full Moon', 'Waning Gibbous', 'Last Quarter', 'Waning Crescent'];
+  return { f, illum: (1 - Math.cos(2 * Math.PI * f)) / 2, name: names[Math.floor(f * 8 + 0.5) % 8] };
+}
+function moonSvg(f) {
+  const r = 11, c = 14, k = Math.cos(2 * Math.PI * f), waxing = f < 0.5, rx = Math.abs(k) * r;
+  const outer = waxing ? 1 : 0, term = waxing ? (k > 0 ? 0 : 1) : (k > 0 ? 1 : 0);
+  return `<svg viewBox="0 0 28 28" width="28" height="28"><circle cx="${c}" cy="${c}" r="${r}" fill="#1d2142" stroke="rgba(245,242,232,0.35)"/>` +
+    `<path d="M ${c} ${c - r} A ${r} ${r} 0 0 ${outer} ${c} ${c + r} A ${rx.toFixed(2)} ${r} 0 0 ${term} ${c} ${c - r} Z" fill="#F3EFE4"/></svg>`;
+}
+function sunPosition(date) {
+  const N = (date.getTime() - Date.UTC(date.getUTCFullYear(), 0, 1)) / 86400000;   // days since Jan 1 00:00 UTC
+  const decl = -Math.asin(0.39779 * Math.cos(RAD * (0.98565 * (N + 10) + 1.914 * Math.sin(RAD * 0.98565 * (N - 2)))));
+  const B = RAD * (360 / 365 * (N - 81)), eot = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);   // equation of time, minutes
+  const utcH = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+  let lon = (12 - utcH - eot / 60) * 15; lon = ((lon + 540) % 360) - 180;
+  return { decl, lon };   // subsolar point
+}
+function nightPolygon(date) {
+  const { decl, lon: ls } = sunPosition(date);
+  const td = Math.tan(Math.abs(decl) < 1e-4 ? 1e-4 : decl), pts = [];
+  for (let lon = -180; lon <= 180; lon += 2) pts.push([Math.max(-85, Math.min(85, Math.atan(-Math.cos((lon - ls) * RAD) / td) / RAD)), lon]);
+  const pole = decl > 0 ? -85 : 85;   // whichever pole is in darkness (Mercator can't draw ±90)
+  pts.push([pole, 180], [pole, -180]);
+  return pts;
+}
+const nightPaneEl = map.createPane('nightPane'); nightPaneEl.style.zIndex = 240; nightPaneEl.style.pointerEvents = 'none';
+const nightLayer = L.layerGroup().addTo(map);
+function updateSky() {
+  const now = new Date();
+  nightLayer.clearLayers();
+  L.polygon(nightPolygon(now), { pane: 'nightPane', stroke: false, fillColor: '#02030f', fillOpacity: 0.3, interactive: false }).addTo(nightLayer);
+  const m = moonPhase(now);
+  document.getElementById('moon-icon').innerHTML = moonSvg(m.f);
+  document.getElementById('moon-name').textContent = m.name;
+  document.getElementById('moon-detail').textContent = `${Math.round(m.illum * 100)}% lit`;
+}
+updateSky();
+setInterval(updateSky, 5 * 60 * 1000);
+document.getElementById('toggle-night').addEventListener('change', e => e.target.checked ? nightLayer.addTo(map) : map.removeLayer(nightLayer));
+/* ===== FLOW+SKY END ===== */
 
 /* ---------- Layer toggles ---------- */
 document.getElementById('toggle-baseline').addEventListener('change', e => {

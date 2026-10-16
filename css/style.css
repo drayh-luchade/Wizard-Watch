@@ -1,0 +1,174 @@
+  @font-face{
+    font-family:'Belwe';
+    src: local('Belwe'), local('ITC Belwe'), local('Belwe Bd BT');
+    font-weight: 700;
+  }
+  :root{
+    --navy:#0A0B2E; --deepblue:#131A4A; --indigo:#241654; --purple:#3D1F6E;
+    --gold:#E8B84B; --gold-soft:#C9A24B; --white:#F5F2E8;
+    --land:#1A2A6C; --land-line:#5B4A9E;
+    --warn:#FF3B3B; --anomaly:#FF3B3B;
+    --baseline-lo:#3a3f4a; --baseline-hi:#F2F0EA;
+  }
+  *{box-sizing:border-box;}
+  /* position:fixed (not just overflow:hidden) so focusing the Leaflet map — which is
+     keyboard-focusable and triggers the browser's native scroll-into-view on focus —
+     can't silently scroll <body> and drag the header off-screen. */
+  html,body{height:100%;margin:0;background:var(--navy);color:var(--white);font-family:'Inter',sans-serif;overflow:clip;position:fixed;inset:0;width:100%;}
+  h1,h2,h3{font-family:'Fraunces',serif;margin:0;}
+  .brand{font-family:'Belwe','Fraunces',Georgia,serif;}
+
+  /* ---------- Star field (shared) ---------- */
+  .star-layer{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:0;}
+  .star{position:absolute;background:var(--white);border-radius:50%;animation:twinkle 3s ease-in-out infinite;}
+  @keyframes twinkle{0%,100%{opacity:0.2;}50%{opacity:1;}}
+
+  /* ---------- Splash screen ---------- */
+  #splash{position:fixed;inset:0;z-index:1000;background:radial-gradient(ellipse at center, var(--indigo) 0%, var(--navy) 70%);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;transition:opacity 1s ease;overflow:hidden;}
+  #splash.hide{opacity:0;pointer-events:none;}
+  /* Layer 1: large ambient background fog, stays after the front panels part */
+  .fog-bg{position:absolute;top:50%;left:50%;width:160%;height:160%;
+    transform:translate(-50%,-50%) scale(1.1);object-fit:cover;opacity:0.4;z-index:1;
+    animation:fogDrift 14s ease-in-out infinite alternate;}
+  @keyframes fogDrift{0%{transform:translate(-52%,-50%) scale(1.12);}100%{transform:translate(-48%,-50%) scale(1.08);}}
+  /* Layer 2: two front panels meeting at the seam, then splitting apart */
+  .fog-front{position:absolute;top:0;width:50%;height:100%;object-fit:cover;object-position:center;opacity:0.95;z-index:2;}
+  .fog-front-left{left:0;animation:partLeft 2.6s ease-in 1.4s forwards;}
+  .fog-front-right{right:0;transform:scaleX(-1);animation:partRight 2.6s ease-in 1.4s forwards;}
+  @keyframes partLeft{0%{left:0;}100%{left:-65%;}}
+  @keyframes partRight{0%{right:0;}100%{right:-65%;}}
+  #splash-title{position:relative;z-index:3;font-size:clamp(1.8rem,6vw,3.2rem);color:var(--gold);
+    text-shadow:0 0 18px rgba(232,184,75,0.8), 0 0 40px rgba(232,184,75,0.4);
+    opacity:0;transform:scale(0.85);animation:emerge 1.8s ease-out 2s forwards;text-align:center;padding:0 20px;}
+  #splash-sub{position:relative;z-index:3;opacity:0;animation:emerge 1.8s ease-out 2.6s forwards;
+    font-size:0.85rem;color:rgba(245,242,232,0.65);text-align:center;margin-top:10px;}
+  @keyframes emerge{0%{opacity:0;transform:scale(0.85);}100%{opacity:1;transform:scale(1);}}
+
+  /* ---------- App shell ---------- */
+  .app{display:flex;flex-direction:column;height:100%;}
+  header{position:relative;flex:0 0 auto;padding:10px 20px;border-bottom:1px solid rgba(232,184,75,0.25);
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--deepblue);z-index:2;}
+  header img.hat{height:36px;width:auto;filter:drop-shadow(0 0 6px rgba(232,184,75,0.5));}
+  header h1{font-size:1.5rem;font-weight:700;color:var(--gold);}
+  #refresh-wrap{margin-left:auto;display:flex;align-items:center;gap:10px;}
+  #last-updated{font-size:0.72rem;color:rgba(245,242,232,0.5);white-space:nowrap;}
+  #refresh-btn{display:flex;align-items:center;gap:6px;background:transparent;border:1px solid rgba(232,184,75,0.5);
+    color:var(--gold);border-radius:999px;padding:6px 14px;font-family:'Inter',sans-serif;font-size:0.82rem;
+    font-weight:600;cursor:pointer;transition:background 0.2s,opacity 0.2s;}
+  #refresh-btn:hover:not(:disabled){background:rgba(232,184,75,0.12);}
+  #refresh-btn:disabled{opacity:0.55;cursor:default;}
+  #refresh-btn svg{width:14px;height:14px;fill:var(--gold);transition:transform 0.6s ease;}
+  #refresh-btn.spinning svg{animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  header p{margin:0;font-size:0.85rem;color:rgba(245,242,232,0.6);}
+  .body{display:flex;flex:1;min-height:0;}
+  #map{flex:1 1 60%;min-height:420px;background:#000;position:relative;z-index:1;}
+  aside{flex:0 0 320px;max-width:100%;color:#3a2a16;padding:20px 22px;overflow-y:auto;
+    border-left:2px solid rgba(232,184,75,0.4);position:relative;z-index:5;
+    transition:flex-basis 0.28s ease,padding 0.28s ease;
+    background-image:url('../assets/scroll.jpg');background-size:cover;background-position:center;}
+  aside.collapsed{flex-basis:0;padding-left:0;padding-right:0;overflow:hidden;border-left:none;}
+  aside.collapsed > *{opacity:0;pointer-events:none;}
+  /* The toggle lives outside <aside> (not clipped by its overflow-y:auto, which forces overflow-x to
+     clip too) and outside #map (which otherwise traps it under Leaflet's internal pane stacking). As
+     a direct child of .body it just sits in its own context above both, offset by the sidebar's
+     current width via :has() so it tracks the panel without any JS-driven position updates. */
+  .body{position:relative;}
+  #sidebar-toggle{position:absolute;top:14px;right:320px;width:33px;height:42px;
+    background:var(--indigo);border:1px solid rgba(232,184,75,0.45);border-right:none;
+    border-radius:8px 0 0 8px;color:var(--gold);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;z-index:30;padding:0;
+    transition:right 0.28s ease;}
+  .body:has(aside.collapsed) #sidebar-toggle{right:0;}
+  #sidebar-toggle svg{width:16px;height:16px;}
+  #sidebar-toggle:hover{background:#2c1d63;}
+  aside, aside .status, aside .empty-note{font-family:'Caveat',cursive;}
+  aside h2{font-size:1.4rem;margin-bottom:6px;color:#4a2f10;font-family:'Caveat',cursive;font-weight:700;}
+  .layer{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px dashed rgba(58,42,22,0.3);}
+  .layer input{margin-top:3px;accent-color:#7a3b12;}
+  .layer label{font-weight:700;font-size:1.15rem;cursor:pointer;}
+  .layer p{margin:1px 0 0;font-size:1rem;opacity:0.85;line-height:1.25;}
+  .swatch{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:6px;border:1px solid rgba(0,0,0,0.3);}
+  .status{font-size:0.85rem;padding:1px 8px;border-radius:10px;background:rgba(74,47,16,0.12);color:#4a2f10;display:inline-block;margin-top:2px;}
+  .status.live{background:rgba(255,59,59,0.15);color:#a11d1d;}
+  #warning-list{margin-top:14px;}
+  .warn-card{background:rgba(255,59,59,0.1);border:1px solid rgba(161,29,29,0.4);border-radius:6px;padding:6px 10px;margin-bottom:8px;font-size:1rem;
+    animation:pulseCard 1.6s ease-in-out infinite;}
+  @keyframes pulseCard{0%,100%{box-shadow:0 0 0 rgba(255,59,59,0);}50%{box-shadow:0 0 10px rgba(255,59,59,0.5);}}
+  .warn-card b{display:block;font-family:'Fraunces',serif;font-size:0.9rem;margin-bottom:2px;color:#a11d1d;}
+  .empty-note{font-size:0.95rem;opacity:0.7;font-style:italic;}
+  .legend-note{font-size:0.82rem;margin-top:14px;line-height:1.45;opacity:0.85;border-top:1px dashed rgba(58,42,22,0.3);padding-top:10px;}
+  .colorbar{margin-top:6px;}
+  .colorbar-gradient{height:12px;border-radius:3px;background:linear-gradient(to right, var(--baseline-lo), var(--baseline-hi));border:1px solid rgba(58,42,22,0.4);}
+  .colorbar-labels{display:flex;justify-content:space-between;font-size:0.85rem;margin-top:2px;opacity:0.85;}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--indigo);color:var(--white);}
+  .territory-tip{background:var(--indigo);color:var(--white);border:1px solid rgba(232,184,75,0.5);font-family:'Inter',sans-serif;font-size:0.78rem;}
+  .territory-tip::before{border-top-color:rgba(232,184,75,0.5);}
+  .leaflet-popup-content{font-family:'Inter',sans-serif;font-size:0.85rem;}
+  .leaflet-popup-content b{font-family:'Fraunces',serif;font-size:1rem;color:var(--gold);}
+  .bolt-icon{display:inline-block;width:26px;height:26px;animation:pulseMarker 1.1s ease-in-out infinite;filter:drop-shadow(0 0 6px #ff3b3b);}
+  .bolt-icon svg{width:100%;height:100%;}
+  @keyframes pulseMarker{0%,100%{transform:scale(1);opacity:1;}50%{transform:scale(1.35);opacity:0.6;}}
+  .pulse-path{animation:pulsePath 1.3s ease-in-out infinite;}
+  @keyframes pulsePath{0%,100%{fill-opacity:0.15;stroke-opacity:0.5;}50%{fill-opacity:0.55;stroke-opacity:1;}}
+
+  /* ---------- News-style ticker along the bottom of the map ---------- */
+  /* A normal full-width row below .body (map+sidebar), not nested inside #map — so it always spans
+     the whole page and never needs to react to the sidebar opening or collapsing. */
+  #ticker-bar{flex:0 0 30px;width:100%;
+    background:rgba(10,11,46,0.88);border-top:1px solid rgba(232,184,75,0.5);
+    overflow:hidden;display:flex;align-items:center;pointer-events:none;}
+  #ticker-label{flex:0 0 auto;background:var(--warn);color:#fff;font-weight:700;font-size:0.7rem;
+    letter-spacing:0.06em;padding:4px 10px;height:100%;display:flex;align-items:center;z-index:1;}
+  #ticker-track{white-space:nowrap;padding-left:100%;will-change:transform;
+    font-size:0.85rem;color:var(--gold);font-family:'Inter',sans-serif;}
+  #ticker-track span.sep{color:rgba(245,242,232,0.4);margin:0 1.2em;}
+  @keyframes ticker{0%{transform:translateX(0);}100%{transform:translateX(-50%);}}
+
+  /* ---------- Sidebar legend icons ---------- */
+  .icon-station{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;
+    background:var(--gold);box-shadow:0 0 3px rgba(232,184,75,0.7);}
+  .flow-canvas{position:absolute;left:0;top:0;pointer-events:none;}
+  .icon-aether{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle;
+    background:radial-gradient(circle,#ffff00 0%,#00ffff 50%,#0000ff 100%);box-shadow:0 0 4px rgba(0,255,255,0.6);}
+  #wx-card{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:1100;width:min(360px,calc(100% - 24px));
+    display:none;flex-direction:column;gap:5px;padding:8px 12px 7px;background:rgba(19,26,74,0.92);
+    border:1px solid rgba(232,184,75,0.45);border-radius:12px;color:var(--white);font-size:0.72rem;line-height:1.2;}
+  #wx-card .wx-row{display:flex;align-items:center;gap:8px;}
+  #wx-card .wx-row b{color:var(--gold);font-family:'Fraunces',serif;font-size:0.84rem;min-width:74px;}
+  #wx-comps{opacity:0.7;margin-left:auto;text-align:right;}
+  #wx-play{width:26px;height:26px;border-radius:50%;border:1px solid rgba(232,184,75,0.6);background:transparent;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;padding:0;flex:0 0 auto;}
+  #wx-play:hover{background:rgba(232,184,75,0.15);}
+  #wx-play svg{width:12px;height:12px;fill:var(--gold);}
+  #wx-slider{width:100%;accent-color:var(--gold);margin:0;}
+  .wx-bar{height:8px;border-radius:4px;background:linear-gradient(90deg,#000080 0%,#0000ff 11%,#00ffff 37.5%,#7fff7f 50%,#ffff00 62.5%,#ff0000 89%,#800000 100%);}
+  .wx-ticks{display:flex;justify-content:space-between;opacity:0.65;font-size:0.62rem;letter-spacing:0.04em;}
+  .icon-flow{width:15px;height:3px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle;
+    background:linear-gradient(90deg,rgba(95,208,200,0.1),#5FD0C8 45%,#E056E0);}
+  .icon-night{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle;
+    background:linear-gradient(90deg,#F3EFE4 50%,#1d2142 50%);border:1px solid rgba(0,0,0,0.35);}
+  #moon-card{position:absolute;left:12px;bottom:12px;z-index:30;display:flex;align-items:center;gap:8px;
+    padding:5px 12px 5px 7px;background:rgba(19,26,74,0.88);border:1px solid rgba(232,184,75,0.4);border-radius:12px;
+    color:var(--white);font-size:0.74rem;line-height:1.25;pointer-events:none;}
+  #moon-card b{display:block;color:var(--gold);font-family:'Fraunces',serif;font-size:0.82rem;font-weight:600;}
+  @media (max-width:720px){ #moon-card{bottom:auto;top:12px;left:60px;} }
+  .icon-bird{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;
+    background:#4FA8A0;box-shadow:0 0 3px rgba(79,168,160,0.7);}
+  .bird-arrow{display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 2px rgba(0,0,0,0.6));}
+  .bird-arrow svg{display:block;}
+  .dot-legend{width:9px;height:9px;border-radius:50%;display:inline-block;border:1px solid rgba(0,0,0,0.3);}
+  .icon-territory{width:14px;height:10px;display:inline-block;margin-right:6px;vertical-align:middle;
+    border:1.6px dashed var(--gold);border-radius:3px;}
+  .icon-thaum-marker{width:10px;height:10px;border-radius:50%;border:1.6px solid var(--gold);
+    background:rgba(232,184,75,0.1);box-shadow:0 0 3px rgba(232,184,75,0.5);}
+  .icon-coven-marker{width:11px;height:11px;border:1.6px solid var(--gold);background:rgba(232,184,75,0.25);
+    box-shadow:0 0 4px rgba(232,184,75,0.6);}
+  .icon-target{width:12px;height:12px;border-radius:50%;border:2px solid var(--warn);
+    position:relative;display:inline-block;margin-right:6px;vertical-align:middle;}
+  .icon-target::after{content:'';position:absolute;top:50%;left:50%;width:5px;height:5px;
+    background:var(--warn);border-radius:50%;transform:translate(-50%,-50%);}
+  .icon-bolt{margin-right:5px;display:inline-block;vertical-align:middle;line-height:0;}
+  .icon-bolt svg{width:13px;height:13px;display:block;}
+  @media (max-width:720px){ aside{flex:1 1 auto;order:2;} #map{order:1;min-height:340px;} .body{flex-direction:column;} }

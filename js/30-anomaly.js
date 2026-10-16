@@ -1,4 +1,6 @@
 /* ---------- ANOMALY ZONES: real z-scores against a 10-year same-week climatology ---------- */
+// Station dots sit in their own pane above the zone polygons: the zones' invisible fill would otherwise swallow clicks meant for a dot inside them.
+const stationPaneEl = map.createPane('stationPane'); stationPaneEl.style.zIndex = 455;
 function meanSd(arr, sdFloor) {
   if (arr.length < 20) return null;
   const m = arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -219,11 +221,15 @@ function stationDashboard(r) {
   const chart = isTemp ? sparkChart(r.years, r.yearlyTemp, r.mu, nowYear, r.tMid)
     : r.topName === 'wind' ? sparkChart(r.years, r.yearlyWind, r.windMu, nowYear, r.wMax) : '';
   const chartLabel = isTemp ? 'Same-week mean temp' : 'Same-week peak wind';
+  const tr = trendOf(r.years, isTemp ? r.yearlyTemp : r.yearlyWind), trendLine = tr ? `${fmtTrend(tr, isTemp ? '°F' : ' mph')} over ${tr.n} yrs${tr.p < 0.05 ? '' : ' (not significant)'}` : '';
   return `<b>${r.st.name}</b><br>Classification: <b>${cls}</b> (${r.topName})<br>` +
     `Today: ${r.tMid.toFixed(0)}°F &nbsp; Normal: ${r.mu.toFixed(0)}°F ± ${r.sd.toFixed(0)}<br>` +
     `Peak wind: ${r.wMax.toFixed(0)} mph (normal ${r.windMu.toFixed(0)} ± ${r.windSd.toFixed(0)}, ${r.zW >= 0 ? '+' : ''}${r.zW.toFixed(1)}σ)<br>` +
+    `<span style="font-size:0.72rem;opacity:0.85">${pctText(isTemp ? r.zT : r.zW, isTemp)}</span><br>` +
+    (trendLine ? `<span style="font-size:0.72rem;opacity:0.85">Trend: ${trendLine}</span><br>` : '') +
     (chart ? `<div style="font-size:0.7rem;opacity:0.7;margin-top:2px">${chartLabel}, past ${r.years.length} yrs + today (dashed = normal):</div>${chart}`
-           : '<i>Not enough years of history for this station yet</i>');
+           : '<i>Not enough years of history for this station yet</i>') +
+    `<div style="margin-top:6px"><button class="cmp-add" data-st="${encodeURIComponent(r.st.name)}">+ Compare</button> <span style="font-size:0.66rem;opacity:0.6">or shift-click a dot</span></div>`;
 }
 
 function describeError(e) {
@@ -277,6 +283,7 @@ async function loadAnomalies() {
         windMu: c.wind.mu, windSd: c.wind.sd, yearlyTemp: c.yearlyTemp, yearlyWind: c.yearlyWind, years: c.years };
     }).filter(Boolean);
     const baseRows = rows.filter(r => !r.noBaseline);
+    cmpRefresh(rows);   // keeps any station selection (and its numbers) current across refreshes
 
     anomalyLayer.clearLayers(); // discard last cycle's zones
     stationLayer.clearLayers();
@@ -288,9 +295,16 @@ async function loadAnomalies() {
       try {
         const base = !r.noBaseline;
         const color = base ? (classColor[classify(r.topName === 'temperature' ? r.zT : r.topZ)] || '#8FAE83') : '#7C8A94';
-        L.circleMarker([r.st.lat, r.st.lng], {
-          radius: base ? 5 + Math.min(4, Math.abs(r.topZ)) : 5, color: '#12160F', weight: 1, fillColor: color, fillOpacity: base ? 0.9 : 0.75
-        }).bindPopup(base ? stationDashboard(r) : stationBasic(r)).addTo(stationLayer);
+        const m = L.circleMarker([r.st.lat, r.st.lng], {
+          pane: 'stationPane', radius: base ? 5 + Math.min(4, Math.abs(r.topZ)) : 5, color: '#12160F', weight: 1, fillColor: color, fillOpacity: base ? 0.9 : 0.75
+        });
+        const popup = L.popup({ maxWidth: 270 }).setContent(base ? stationDashboard(r) : stationBasic(r));
+        m.on('click', ev => {   // plain click = popup; shift/ctrl/cmd-click = add to / remove from the comparison
+          L.DomEvent.stop(ev); const oe = ev.originalEvent;
+          if (base && oe && (oe.shiftKey || oe.ctrlKey || oe.metaKey)) { cmpToggle(r.st.name); return; }
+          popup.setLatLng(m.getLatLng()).openOn(map);
+        });
+        m.addTo(stationLayer);
       } catch (err) { console.error('Station marker failed for', r.st.name, err); }
     });
     const hot = baseRows.filter(r => r.topZ >= ANOMALY_Z).sort((x, y) => y.topZ - x.topZ);

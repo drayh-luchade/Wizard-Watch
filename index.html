@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wizard Watch</title>
+<meta name="description" content="Tracking wizarding activity through baseline habitat scoring and live atmospheric anomaly detection.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<!-- Note: "Belwe" is a licensed commercial typeface (ITC Belwe) and is not available via a free web-font CDN.
+     We reference it by name with serif fallbacks below; if you own a licensed webfont file for it,
+     add an @font-face rule pointing to that file and it will be picked up automatically. -->
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="splash">
+  <div class="star-layer" id="splash-stars"></div>
+  <img class="fog-bg" src="assets/fog.webp" alt="">
+  <img class="fog-front fog-front-left" src="assets/fog.webp" alt="">
+  <img class="fog-front fog-front-right" src="assets/fog.webp" alt="">
+  <div>
+    <div id="splash-title" class="brand">Welcome to Wizard Watch</div>
+    <div id="splash-sub">click anywhere to enter</div>
+  </div>
+</div>
+
+<div class="app">
+  <header>
+    <img class="hat" src="assets/hat.png" alt="">
+    <h1 class="brand">Wizard Watch</h1>
+    <div id="refresh-wrap">
+      <span id="last-updated"></span>
+      <button id="refresh-btn" title="Refresh live data (warnings + anomalies)">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17.65 6.35A7.95 7.95 0 0012 4a8 8 0 108 8h-2a6 6 0 11-1.76-4.24L13 11h7V4l-2.35 2.35z"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+  <div class="body">
+    <div id="map">
+      <div id="wx-card">
+        <div class="wx-row"><button id="wx-play" aria-label="Play or pause the 24-hour loop"></button><b id="wx-time">—</b><span id="wx-comps"></span></div>
+        <input type="range" id="wx-slider" min="0" max="24" step="0.05" value="0" aria-label="Hours ahead">
+        <div class="wx-bar"></div>
+        <div class="wx-ticks"><span>calm</span><span>AETHER INDEX · next 24 h</span><span>surging</span></div>
+      </div>
+    </div>
+    <aside>
+      <h2>Layers</h2>
+      <div class="layer">
+        <input type="checkbox" id="toggle-baseline" checked>
+        <div style="flex:1"><label for="toggle-baseline"><span class="swatch" style="background:var(--baseline-hi)"></span>Baseline Habitat</label>
+        <p>Wizard density per km². Real USDA state figures (forest cover, cattle density, karst regions) are redistributed dasymetrically using rivers, lakes, coast, remoteness from cities and national-park land, rendered as soft density blobs rather than traced waterways. Biodiversity richness isn't in yet.
+        <br>○ Thaum reading (sampled from the density field) &nbsp; □ Coven/academy site (local density peak) — both illustrative, not real measurements.</p>
+        <div class="colorbar">
+          <div class="colorbar-gradient"></div>
+          <div class="colorbar-labels"><span>0 /km²</span><span>~100 /km²</span></div>
+        </div>
+        <span class="status">real USDA data + Natural Earth habitat layers, US only</span></div>
+      </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-anomaly" checked>
+        <div><label for="toggle-anomaly"><span class="icon-target"></span>Anomaly Zones</label>
+        <p>Today's temperature and peak wind versus an 8-year same-week climatology at 43 stations (real z-scores), plus 3-hour pressure drop. Zone outlines are interpolated between stations and contoured at 2σ. Same alert red as warnings, but a static stippled fill.</p>
+        <span class="status live" id="anomaly-status">loading live data…</span></div>
+      </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-stations" checked>
+        <div><label for="toggle-stations"><span class="icon-station"></span>Stations</label>
+        <p>The 43 stations behind the zones above, shown individually and color-coded by how far off normal each one is — click any dot for its real period-of-record chart.
+          <span style="display:inline-flex;gap:5px;flex-wrap:wrap;margin-top:4px">
+            <span class="dot-legend" style="background:#4F7FA8"></span><span class="dot-legend" style="background:#7FA8C9"></span><span class="dot-legend" style="background:#8FAE83"></span><span class="dot-legend" style="background:#E8B84B"></span><span class="dot-legend" style="background:#E08A3C"></span><span class="dot-legend" style="background:#FF3B3B"></span>
+          </span></p>
+        </div>
+      </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-warning" checked>
+        <div><label for="toggle-warning"><span class="icon-bolt"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="var(--warn)" d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z"/></svg></span>Wizard Warnings</label>
+        <p>Active NWS tornado &amp; severe thunderstorm warnings/watches, nationwide, refreshed every 2 minutes. Solid fill that pulsates while active — the give-away versus the static anomaly stipple.</p>
+        <span class="status live" id="warning-status">loading live alerts…</span></div>
+      </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-territories" checked>
+        <div><label for="toggle-territories"><span class="icon-territory"></span>Wizard Territories</label>
+        <p>11 regions built from the real CEC/USGS North American Watersheds dataset: the 18 official USGS HUC2 basins are paired by true shared borders and most-similar area into 9 merged territories, plus Alaska and Hawaii standing alone. Genuine watershed geometry — not state or county approximation.</p>
+        <span class="status">real watershed data — CEC/NRCan/INEGI/USGS, CC BY 4.0</span></div>
+      </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-birds" checked>
+        <div><label for="toggle-birds"><span class="icon-bird"></span>Bird Migration</label>
+        <p>Live nocturnal migration intensity at 143 NEXRAD radar sites — real per-station bird density, ground speed/direction and altitude, refreshed every 10 minutes. Arrows show actual flight heading; gray dots are radars currently offline.
+          <span style="display:inline-flex;gap:5px;flex-wrap:wrap;margin-top:4px">
+            <span class="dot-legend" style="background:#3A4A52"></span><span class="dot-legend" style="background:#4FA8A0"></span><span class="dot-legend" style="background:#E8B84B"></span><span class="dot-legend" style="background:#E0763C"></span><span class="dot-legend" style="background:#C94FC9"></span>
+          </span></p>
+        <span class="status live" id="bird-status">loading live data…</span></div>
+      </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-aether" checked>
+        <div style="flex:1"><label for="toggle-aether"><span class="icon-aether"></span>Aether Index</label>
+        <p>An invented "magical charge" built from three real ingredients and animated over the next 24 hours: storm energy (CAPE), downward sunlight (shortwave radiation) and airborne pollen — or PM2.5 where pollen data isn't available. Blue = calm, red = surging. Between hours the pattern glides along its estimated motion instead of fading, and the day/night line moves at the sun's true pace. The formula is made up; the inputs are real. Click the map for the numbers behind a spot.</p>
+        <div class="colorbar"><div class="colorbar-gradient" style="background:linear-gradient(90deg,#000080 0%,#0000ff 11%,#00ffff 37.5%,#7fff7f 50%,#ffff00 62.5%,#ff0000 89%,#800000 100%)"></div>
+          <div class="colorbar-labels"><span>0</span><span>Aether Index</span><span>100</span></div></div>
+        <span class="status live" id="aether-status">loading live data…</span></div>
+      </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-birdflow" checked>
+        <div><label for="toggle-birdflow"><span class="icon-flow"></span>Bird Flow</label>
+        <p>Animated particles drifting along the real bird-movement vectors from the radar network, blended between sites. Warmer, brighter streaks = heavier migration. Directions are real; the motion is time-lapsed (about 4 hours of flight per second).</p></div>
+      </div>
+      <div class="layer">
+        <input type="checkbox" id="toggle-night" checked>
+        <div><label for="toggle-night"><span class="icon-night"></span>Day / Night</label>
+        <p>Where it is dark right now, computed from the clock — useful context, since these birds migrate at night.</p></div>
+      </div>
+      <div class="legend-note">
+        Baseline: real USDA state data spread across each state with Natural Earth habitat layers (US only; no biodiversity term yet). Anomalies and warnings are live — NWS alerts every 2 minutes, Open-Meteo every 30 — and nothing live is stored; it's fetched in your browser each visit. Zone shapes are only as detailed as the 43-station network. Basemap is a stylized outline, not geographically precise. Watershed boundaries: Commission for Environmental Cooperation (CEC) 2010, North American Environmental Atlas – Watersheds, NRCan/INEGI/USGS, CC BY 4.0. Weather data by Open-Meteo.com (CC BY 4.0). Moon phase and day/night shading are computed locally and are approximate. Bird migration data: Purdue AeroEco Lab (aeroecolab.com), derived from NEXRAD weather radar (Van Doren &amp; Horton 2018, <i>Science</i> 361:1115–1118).
+      </div>
+    </aside>
+    <div id="moon-card"><span id="moon-icon"></span><div><b id="moon-name">Moon</b><span id="moon-detail"></span></div></div>
+    <button id="sidebar-toggle" title="Collapse layers panel" aria-label="Toggle layers panel">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div id="ticker-bar">
+    <div id="ticker-label">WIZARD WIRE</div>
+    <div id="ticker-track"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="data/basemap.js"></script>
+<script src="data/stateBaselineData.js"></script>
+<script src="data/densityData.js"></script>
+<script src="data/wizardTerritories.js"></script>
+<script src="data/nexradStations.js"></script>
+<script src="js/00-ui.js"></script>
+<script src="js/10-map-baseline.js"></script>
+<script src="js/20-ticker.js"></script>
+<script src="js/30-anomaly.js"></script>
+<script src="js/40-warnings.js"></script>
+<script src="js/50-birds.js"></script>
+<script src="js/60-birdflow-sky.js"></script>
+<script src="js/70-aether.js"></script>
+<script src="js/80-toggles.js"></script>
+</body>
+</html>

@@ -1,12 +1,12 @@
 /* ===== AETHER BEGIN ===== */
 /* ---------- AETHER INDEX: an invented "magical charge" built from three REAL atmospheric ingredients ----------
-   storm energy (CAPE, J/kg) + downward sunlight (shortwave radiation, W/m²) + airborne pollen — or PM2.5 where
+   storm energy (CAPE, J/kg) + darkness (the absence of downward sunlight, shortwave radiation W/m²; wizards favour the night) + airborne pollen — or PM2.5 where
    pollen isn't available (Open-Meteo's pollen comes from CAMS' European model; US cells may come back empty,
    so the third term auto-selects whichever the API actually returns). The weights are made up; the inputs aren't.
    One request per API returns hourly arrays for 72 h, so the field is animated through the next 24 h at no
    extra cost. Cached ~100 min and rate-limit-aware (see the Open-Meteo weighting notes above). */
 const AE = { lat0: 23, lat1: 51, lon0: -125, lon1: -65, step: 4, ttlMin: 100, frames: 25, frameMs: 700,
-  wCape: 0.45, wSun: 0.30, wAir: 0.25, capeSat: 2500, sunSat: 800, pm25Sat: 50, pollenSat: 150 };
+  wCape: 0.45, wNight: 0.30, wAir: 0.25, capeSat: 2500, sunSat: 800, pm25Sat: 50, pollenSat: 150 };
 AE.nx = Math.round((AE.lon1 - AE.lon0) / AE.step) + 1; AE.ny = Math.round((AE.lat1 - AE.lat0) / AE.step) + 1;
 const AE_PTS = []; for (let j = 0; j < AE.ny; j++) for (let i = 0; i < AE.nx; i++) AE_PTS.push([AE.lat0 + j * AE.step, AE.lon0 + i * AE.step]);
 const AE_KEY = 'ww_wx_v1', AE_FAIL = 'ww_fail_wx';
@@ -17,10 +17,10 @@ const JET = Array.from({ length: 256 }, (_, k) => { const v = k / 255, f = x => 
 const PLAY_SVG = '<svg viewBox="0 0 12 12"><path d="M3 1.5v9l7-4.5z"/></svg>', PAUSE_SVG = '<svg viewBox="0 0 12 12"><path d="M2.5 1.5h3v9h-3zM6.5 1.5h3v9h-3z"/></svg>';
 
 function aetherIndex(cape, sw, air, mode) {
-  const c = Math.min(1, (cape || 0) / AE.capeSat), s = Math.min(1, (sw || 0) / AE.sunSat);
-  if (mode === 'none') return 100 * (AE.wCape * c + AE.wSun * s) / (AE.wCape + AE.wSun);   // renormalise when there's no third ingredient
+  const c = Math.min(1, (cape || 0) / AE.capeSat), s = 1 - Math.min(1, (sw || 0) / AE.sunSat);   // s = darkness: 1 at night, 0 in full sun
+  if (mode === 'none') return 100 * (AE.wCape * c + AE.wNight * s) / (AE.wCape + AE.wNight);   // renormalise when there's no third ingredient
   const a = Math.min(1, (air || 0) / (mode === 'pollen' ? AE.pollenSat : AE.pm25Sat));
-  return 100 * (AE.wCape * c + AE.wSun * s + AE.wAir * a);
+  return 100 * (AE.wCape * c + AE.wNight * s + AE.wAir * a);
 }
 async function aeGetJson(url) { const r = await fetch(url); if (!r.ok) throw new Error('http ' + r.status); const j = await r.json(); return Array.isArray(j) ? j : [j]; }
 async function aetherFetch() {
@@ -83,13 +83,52 @@ const AE_PX = (() => {   // per-pixel geometry, built once
   return { sinLat, cosLat, lon, mask, fx, fy };
 })();
 
+/* ---------- Coast clip: show the field over the US and out to ~125 km offshore, nothing over Canada/Mexico or open ocean ----------
+   Rasterises the basemap (lower-48 states vs. other countries) at 0.125°, takes each water pixel's distance to US land with a
+   two-pass chamfer transform, and fades the field out around 125 km. Built once at load. */
+const AE_COAST_KM = 125, AE_COAST_FADE_KM = 40, AE_MW = 480, AE_MH = Math.round(AE_MW * AE_H / AE_W);
+const AE_COAST = (() => {
+  const y0 = mercY(AE.lat0), y1 = mercY(AE.lat1), mk = () => { const c = document.createElement('canvas'); c.width = AE_MW; c.height = AE_MH; return c; };
+  const raster = pred => {
+    const c = mk(), x = c.getContext('2d'); x.fillStyle = '#fff';
+    for (const f of basemap.features) { if (!pred(f.properties)) continue;
+      const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
+      x.beginPath();
+      for (const poly of polys) for (const ring of poly) ring.forEach((q, i) => {
+        const px = (q[0] - AE.lon0) / (AE.lon1 - AE.lon0) * AE_MW, py = (y1 - mercY(Math.max(-85, Math.min(85, q[1])))) / (y1 - y0) * AE_MH;
+        i ? x.lineTo(px, py) : x.moveTo(px, py); });
+      x.fill('evenodd'); }
+    const d = x.getImageData(0, 0, AE_MW, AE_MH).data, a = new Float32Array(AE_MW * AE_MH);
+    for (let k = 0; k < a.length; k++) a[k] = d[k * 4 + 3] / 255;
+    return a; };
+  const us = raster(p => p.level === 'state' && p.name !== 'Alaska' && p.name !== 'Hawaii'), other = raster(p => p.level === 'country');
+  const INF = 1e9, d = new Float32Array(AE_MW * AE_MH), W = AE_MW, H = AE_MH, D2 = Math.SQRT2;
+  for (let k = 0; k < d.length; k++) d[k] = us[k] > 0.5 ? 0 : INF;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = y * W + x; let v = d[k];
+    if (x > 0) v = Math.min(v, d[k - 1] + 1); if (y > 0) { v = Math.min(v, d[k - W] + 1); if (x > 0) v = Math.min(v, d[k - W - 1] + D2); if (x < W - 1) v = Math.min(v, d[k - W + 1] + D2); } d[k] = v; }
+  for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const k = y * W + x; let v = d[k];
+    if (x < W - 1) v = Math.min(v, d[k + 1] + 1); if (y < H - 1) { v = Math.min(v, d[k + W] + 1); if (x < W - 1) v = Math.min(v, d[k + W + 1] + D2); if (x > 0) v = Math.min(v, d[k + W - 1] + D2); } d[k] = v; }
+  const m = new Float32Array(W * H), cv = mk(), cx = cv.getContext('2d'), img = cx.createImageData(W, H), degPx = (AE.lon1 - AE.lon0) / W;
+  for (let y = 0; y < H; y++) {
+    const lat = invMercY(y1 - (y + 0.5) / H * (y1 - y0)), kmPx = degPx * 111.32 * Math.cos(lat * Math.PI / 180);
+    for (let x = 0; x < W; x++) { const k = y * W + x, km = d[k] * kmPx;
+      const t = Math.max(0, Math.min(1, (AE_COAST_KM + AE_COAST_FADE_KM / 2 - km) / AE_COAST_FADE_KM)), water = t * t * (3 - 2 * t);
+      m[k] = us[k] + (1 - us[k]) * (1 - other[k]) * water; img.data[k * 4 + 3] = Math.round(255 * m[k]); } }
+  cx.putImageData(img, 0, 0);
+  return { canvas: cv, m };
+})();
+function aeCoastAt(lat, lon) {   // 0..1 visibility of the field at a point
+  const y0 = mercY(AE.lat0), y1 = mercY(AE.lat1), x = Math.floor((lon - AE.lon0) / (AE.lon1 - AE.lon0) * AE_MW), y = Math.floor((y1 - mercY(lat)) / (y1 - y0) * AE_MH);
+  return x < 0 || y < 0 || x >= AE_MW || y >= AE_MH ? 0 : AE_COAST.m[y * AE_MW + x];
+}
+
 function aeClear(sinLat, cosLat, lonRad, decl, sunLon) {   // Haurwitz clear-sky global horizontal irradiance, W/m²
   const cz = sinLat * Math.sin(decl) + cosLat * Math.cos(decl) * Math.cos(lonRad - sunLon);
   return cz > 0.01 ? 1098 * cz * Math.exp(-0.059 / cz) : 0;
 }
-function aeSunField(ms, K, out) {   // sunlight term (0..1) at any instant: clear-sky * cloud transmissivity
+function aeSunField(ms, K, out) {   // DARKNESS term (0..1) at any instant: 1 - (clear-sky sunlight * cloud transmissivity) / saturation
   const sp = sunPosition(new Date(ms)), decl = sp.decl, sl = sp.lon * AE_RAD, P = AE_PX;
-  for (let k = 0; k < AE_N; k++) out[k] = Math.min(1, K[k] * aeClear(P.sinLat[k], P.cosLat[k], P.lon[k], decl, sl) / AE.sunSat);
+  for (let k = 0; k < AE_N; k++) out[k] = 1 - Math.min(1, K[k] * aeClear(P.sinLat[k], P.cosLat[k], P.lon[k], decl, sl) / AE.sunSat);
 }
 
 // Catmull-Rom bicubic interpolation of the coarse grid: smooth blobs instead of bilinear diamonds.
@@ -210,7 +249,7 @@ function aeInterpAt(i, tau, out) {   // Aether Index (0..100) at hour i + tau
   aeWarpBlend(ae.R[i], ae.R[i + 1], aeFlowFor(i), tau, ae.tmpR);
   for (let k = 0; k < AE_N; k++) ae.tmpK[k] = a * ae.K[i][k] + tau * ae.K[i + 1][k];
   aeSunField(ae.data.start + (ae.startIdx + i + tau) * 3600000 - 1800000, ae.tmpK, ae.tmpS);
-  for (let k = 0; k < AE_N; k++) out[k] = Math.max(0, Math.min(100, 100 * (ae.tmpR[k] + AE.wSun * ae.tmpS[k]) / ae.norm));
+  for (let k = 0; k < AE_N; k++) out[k] = Math.max(0, Math.min(100, 100 * (ae.tmpR[k] + AE.wNight * ae.tmpS[k]) / ae.norm));
 }
 function aeLabel() {
   if (!ae.data) return;
@@ -229,9 +268,12 @@ function aeDraw() {
     d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = Math.round(255 * P.mask[k] * AE_LUT[q]);
   }
   ae.offCtx.putImageData(ae.img, 0, 0);
+  const bx = ae.bigCtx; bx.globalCompositeOperation = 'source-over'; bx.clearRect(0, 0, AE_MW, AE_MH);
+  bx.imageSmoothingEnabled = true; bx.imageSmoothingQuality = 'high'; bx.drawImage(ae.off, 0, 0, AE_MW, AE_MH);
+  bx.globalCompositeOperation = 'destination-in'; bx.drawImage(AE_COAST.canvas, 0, 0); bx.globalCompositeOperation = 'source-over';   // clip to US + 125 km offshore
   const nw = map.latLngToContainerPoint([AE.lat1, AE.lon0]), se = map.latLngToContainerPoint([AE.lat0, AE.lon1]);
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(ae.off, nw.x, nw.y, se.x - nw.x, se.y - nw.y);
+  ctx.drawImage(ae.big, nw.x, nw.y, se.x - nw.x, se.y - nw.y);
   if (!ae.flows[i + 1] && i + 2 < ae.n) setTimeout(() => { if (!ae.flows[i + 1]) aeFlowFor(i + 1); }, 0);   // warm the next hour's flow before it's needed
 }
 function aeReset() {
@@ -257,15 +299,15 @@ function aetherUse(data) {
   if (n < 2) throw new Error('weather field data has run out');
   const fl = aeBuildFields(data, nowIdx, n);
   ae.data = data; ae.startIdx = nowIdx; ae.n = n; ae.R = fl.R; ae.K = fl.K; ae.flows = new Array(n - 1); ae.t = Math.min(ae.t, n - 1);
-  ae.norm = data.mode === 'none' ? AE.wCape + AE.wSun : 1;   // no third ingredient: renormalise so the scale still reaches 100
+  ae.norm = data.mode === 'none' ? AE.wCape + AE.wNight : 1;   // no third ingredient: renormalise so the scale still reaches 100
   if (!ae.vals) { ae.vals = new Float32Array(AE_N); ae.tmpR = new Float32Array(AE_N); ae.tmpK = new Float32Array(AE_N); ae.tmpS = new Float32Array(AE_N);
-    ae.off = document.createElement('canvas'); ae.off.width = AE_W; ae.off.height = AE_H; ae.offCtx = ae.off.getContext('2d'); ae.img = ae.offCtx.createImageData(AE_W, AE_H); }
+    ae.off = document.createElement('canvas'); ae.off.width = AE_W; ae.off.height = AE_H; ae.offCtx = ae.off.getContext('2d'); ae.big = document.createElement('canvas'); ae.big.width = AE_MW; ae.big.height = AE_MH; ae.bigCtx = ae.big.getContext('2d'); ae.img = ae.offCtx.createImageData(AE_W, AE_H); }
   if (!ae.canvas) { ae.canvas = L.DomUtil.create('canvas', 'flow-canvas'); aePaneEl.appendChild(ae.canvas); ae.ctx = ae.canvas.getContext('2d'); aeReset(); }
   document.getElementById('wx-slider').max = String(n - 1);
-  const what = { pollen: 'CAPE · sunlight · pollen', pm25: 'CAPE · sunlight · PM2.5', none: 'CAPE · sunlight' }[data.mode];
+  const what = { pollen: 'CAPE · night · pollen', pm25: 'CAPE · night · PM2.5', none: 'CAPE · night' }[data.mode];
   document.getElementById('wx-comps').textContent = what;
   const why = { pollen: 'pollen', pm25: 'PM2.5 (no US pollen data returned)', none: 'no air-quality term available' }[data.mode];
-  document.getElementById('aether-status').textContent = `live — CAPE + sunlight + ${why}`;
+  document.getElementById('aether-status').textContent = `live — CAPE + night + ${why}`;
   document.getElementById('wx-card').style.display = ae.on ? 'flex' : 'none';
   ae.dirty = true; aeLabel();
 }
@@ -286,14 +328,14 @@ async function loadAether(opts = {}) {
   }
 }
 function aetherInfoHtml(ll) {   // appended to the click popup so the field has site-specific numbers, not just colour
-  if (!ae.on || !ae.data) return '';
+  if (!ae.on || !ae.data || aeCoastAt(ll.lat, ll.lng) < 0.3) return '';
   const ir = Math.round((ll.lng - AE.lon0) / AE.step), jr = Math.round((ll.lat - AE.lat0) / AE.step);
   if (ir < 0 || jr < 0 || ir >= AE.nx || jr >= AE.ny) return '';
   const p = jr * AE.nx + ir, h = ae.startIdx + Math.round(ae.t), d = ae.data;
   const idx = aetherIndex(d.cape[p][h], d.sw[p][h], d.air[p][h], d.mode);
   const air = d.mode === 'pollen' ? ` · pollen ${d.air[p][h]} grains/m³` : d.mode === 'pm25' ? ` · PM2.5 ${d.air[p][h]} µg/m³` : '';
   return `<div style="font-size:0.72rem;margin-top:6px;border-top:1px solid rgba(245,242,232,0.2);padding-top:4px"><b>Aether Index ≈ ${Math.round(idx)}</b> · ${document.getElementById('wx-time').textContent}<br>` +
-    `storm energy ${d.cape[p][h].toLocaleString()} J/kg · sunlight ${d.sw[p][h]} W/m²${air}<br><i>nearest point of a coarse ${AE.step}° sample grid</i></div>`;
+    `storm energy ${d.cape[p][h].toLocaleString()} J/kg · sunlight ${d.sw[p][h]} W/m² (less sun = higher index)${air}<br><i>nearest point of a coarse ${AE.step}° sample grid</i></div>`;
 }
 const wxCard = document.getElementById('wx-card');
 L.DomEvent.disableClickPropagation(wxCard); L.DomEvent.disableScrollPropagation(wxCard);

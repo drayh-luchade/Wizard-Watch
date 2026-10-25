@@ -195,3 +195,17 @@
   #cmp-card .cmp-msg{margin-top:6px;color:var(--gold);}
   .cmp-add{font:inherit;font-size:0.72rem;padding:2px 8px;border-radius:6px;border:1px solid rgba(232,184,75,0.6);background:rgba(232,184,75,0.12);color:inherit;cursor:pointer;}
   @media (max-width:720px){ #cmp-card{right:12px;top:56px;} }
+
+  /* ---- bat (familiars) card ---- */
+  #bat-card{position:absolute;left:12px;bottom:72px;z-index:1100;width:min(310px,calc(100% - 24px));display:none;flex-direction:column;gap:5px;padding:8px 12px 7px;
+    background:rgba(19,26,74,0.92);border:1px solid rgba(232,184,75,0.45);border-radius:12px;color:var(--white);font-size:0.72rem;line-height:1.2;}
+  #bat-card .wx-row{display:flex;align-items:center;gap:8px;}
+  #bat-card .wx-row b{color:var(--gold);font-family:'Fraunces',serif;font-size:0.84rem;min-width:36px;}
+  #bat-sp{flex:1;min-width:0;font:inherit;color:var(--white);background:rgba(10,11,46,0.7);border:1px solid rgba(232,184,75,0.4);border-radius:6px;padding:2px 4px;}
+  #bat-play{width:26px;height:26px;border-radius:50%;border:1px solid rgba(232,184,75,0.6);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;flex:0 0 auto;}
+  #bat-play:hover{background:rgba(232,184,75,0.15);} #bat-play svg{width:12px;height:12px;fill:var(--gold);}
+  #bat-slider{width:100%;accent-color:var(--gold);margin:0;}
+  .bat-bar{height:8px;border-radius:4px;background:linear-gradient(90deg,#1b1450 0%,#5b2a9e 25%,#b33db5 50%,#f08a4b 75%,#ffe08a 100%);}
+  #bat-note{opacity:0.85;font-size:0.68rem;} .bat-status{opacity:0.55;font-size:0.64rem;}
+  .icon-bat{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle;background:radial-gradient(circle at 35% 35%,#ffe08a,#b33db5 55%,#1b1450);}
+  @media (max-width:720px){ #bat-card{bottom:12px;} }

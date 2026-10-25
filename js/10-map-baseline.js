@@ -236,12 +236,13 @@ function incidentBars(seed) {
   return `<div style="display:flex;gap:3px;margin-top:3px">${bars}</div>`;
 }
 map.on('click', e => {
-  if (!map.hasLayer(baselineLayer)) return;
-  const v = densityAt(e.latlng.lat, e.latlng.lng);
-  if (v == null) return;
+  // Each active layer contributes its own block to one shared popup (baseline, Aether, bats), so none of them depends on another being on.
+  const v = map.hasLayer(baselineLayer) ? densityAt(e.latlng.lat, e.latlng.lng) : null;
+  const extra = (typeof aetherInfoHtml === 'function' ? aetherInfoHtml(e.latlng) : '') + (typeof batInfoHtml === 'function' ? batInfoHtml(e.latlng) : '');
+  if (v == null) { if (extra) L.popup({ maxWidth: 280 }).setLatLng(e.latlng).setContent(extra).openOn(map); return; }
   const st = stateAt(e.latlng.lat, e.latlng.lng), d = st && stateBaselineData[st];
   const content = `<b>≈ ${Math.round(v)} wizards/km²</b>` +
     (d ? `<br>${st}${d.karst ? ' <i>(karst multiplier applied)</i>' : ''}` + componentBars(d) : '') +
     `<div style="font-size:0.68rem;opacity:0.6;margin-top:5px">Reported wizarding incidents, last 6mo <i>(fictional, for flavor)</i>:</div>${incidentBars(st || (e.latlng.lat + ',' + e.latlng.lng))}`;
-  L.popup().setLatLng(e.latlng).setContent(content + aetherInfoHtml(e.latlng)).openOn(map);
+  L.popup({ maxWidth: 280 }).setLatLng(e.latlng).setContent(content + extra).openOn(map);
 });

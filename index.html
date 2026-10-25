@@ -40,6 +40,13 @@
   </header>
   <div class="body">
     <div id="map">
+      <div id="bat-card">
+        <div class="wx-row"><button id="bat-play" aria-label="Play or pause the year-by-year view"></button><b id="bat-year">—</b><select id="bat-sp" aria-label="Bat species"></select></div>
+        <input type="range" id="bat-slider" min="0" max="9" step="0.01" value="0" aria-label="Year">
+        <div class="bat-bar"></div>
+        <div class="wx-ticks"><span>0%</span><span>MODELED SUMMER OCCUPANCY</span><span>100%</span></div>
+        <div id="bat-note"></div><div class="bat-status" id="bat-status"></div>
+      </div>
       <div id="wx-card">
         <div class="wx-row"><button id="wx-play" aria-label="Play or pause the 24-hour loop"></button><b id="wx-time">—</b><span id="wx-comps"></span></div>
         <input type="range" id="wx-slider" min="0" max="24" step="0.05" value="0" aria-label="Hours ahead">
@@ -105,6 +112,13 @@
         <span class="status live" id="aether-status">loading live data…</span></div>
       </div>
       <div class="layer">
+        <input type="checkbox" id="toggle-bats">
+        <div style="flex:1"><label for="toggle-bats"><span class="icon-bat"></span>Familiars (bats)</label>
+        <p>Wizards' nocturnal familiars, played by real bats: the USGS North American Bat Monitoring Program's modeled summer occupancy (the chance a species is present) for each 10 km cell, year by year. This is modeled history through 2019, not live data. Brighter = more likely; faded cells are less certain. Little brown, northern long-eared and tricolored bats cover 2010–2019, the years white-nose syndrome hit them; other species start in 2016. Click the map for a spot's numbers.</p>
+        <div class="colorbar"><div class="colorbar-gradient" style="background:linear-gradient(90deg,#1b1450 0%,#5b2a9e 25%,#b33db5 50%,#f08a4b 75%,#ffe08a 100%)"></div>
+          <div class="colorbar-labels"><span>0%</span><span>occupancy</span><span>100%</span></div></div></div>
+      </div>
+      <div class="layer">
         <input type="checkbox" id="toggle-birdflow" checked>
         <div><label for="toggle-birdflow"><span class="icon-flow"></span>Bird Flow</label>
         <p>Animated particles drifting along the real bird-movement vectors from the radar network, blended between sites. Warmer, brighter streaks = heavier migration. Directions are real; the motion is time-lapsed (about 4 hours of flight per second).</p></div>
@@ -115,7 +129,7 @@
         <p>Where it is dark right now, computed from the clock — useful context, since these birds migrate at night.</p></div>
       </div>
       <div class="legend-note">
-        Baseline: real USDA state data spread across each state with Natural Earth habitat layers (US only; no biodiversity term yet). Anomalies and warnings are live — NWS alerts every 2 minutes, Open-Meteo every 30 — and nothing live is stored; it's fetched in your browser each visit. Zone shapes are only as detailed as the 43-station network. Basemap is a stylized outline, not geographically precise. Watershed boundaries: Commission for Environmental Cooperation (CEC) 2010, North American Environmental Atlas – Watersheds, NRCan/INEGI/USGS, CC BY 4.0. Weather data by Open-Meteo.com (CC BY 4.0). Moon phase and day/night shading are computed locally and are approximate. Bird migration data: Purdue AeroEco Lab (aeroecolab.com), derived from NEXRAD weather radar (Van Doren &amp; Horton 2018, <i>Science</i> 361:1115–1118).
+        Baseline: real USDA state data spread across each state with Natural Earth habitat layers (US only; no biodiversity term yet). Anomalies and warnings are live — NWS alerts every 2 minutes, Open-Meteo every 30 — and nothing live is stored; it's fetched in your browser each visit. Zone shapes are only as detailed as the 43-station network. Basemap is a stylized outline, not geographically precise. Watershed boundaries: Commission for Environmental Cooperation (CEC) 2010, North American Environmental Atlas – Watersheds, NRCan/INEGI/USGS, CC BY 4.0. Weather data by Open-Meteo.com (CC BY 4.0). Bat occupancy: USGS North American Bat Monitoring Program, Status and Trends of North American Bats: Summer Occupancy Analysis 2010–2019 data release (public domain). Moon phase and day/night shading are computed locally and are approximate. Bird migration data: Purdue AeroEco Lab (aeroecolab.com), derived from NEXRAD weather radar (Van Doren &amp; Horton 2018, <i>Science</i> 361:1115–1118).
       </div>
     </aside>
     <div id="moon-card"><span id="moon-icon"></span><div><b id="moon-name">Moon</b><span id="moon-detail"></span></div></div>
@@ -144,6 +158,7 @@
 <script src="js/50-birds.js"></script>
 <script src="js/60-birdflow-sky.js"></script>
 <script src="js/70-aether.js"></script>
+<script src="js/75-bats.js"></script>
 <script src="js/80-toggles.js"></script>
 </body>
 </html>

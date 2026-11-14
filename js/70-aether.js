@@ -66,21 +66,29 @@ function aeWriteCache(d) { try { localStorage.setItem(AE_KEY, JSON.stringify(d))
 const AE_W = 120, AE_MINDIM = 8, AE_ALPHA2 = 0.008, AE_RMAX = 8, AE_NORM_R = 8;
 const AE_H = Math.round(AE_W * (mercY(AE.lat1) - mercY(AE.lat0)) / ((AE.lon1 - AE.lon0) * Math.PI / 180)), AE_N = AE_W * AE_H;
 const AE_RAD = Math.PI / 180;
-const AE_LUT = Array.from({ length: 256 }, (_, q) => 0.2 + 0.5 * Math.pow(q / 255, 0.8));   // calm = faint, surging = vivid
+/* Southern detractor + low-end clip. The index is scaled by a latitude factor (AE_SOUTH_MIN at 26°N and below, rising to 1 by 42°N)
+   so the sunnier, stormier south doesn't dominate; then anything under AE_CLIP_LO is fully transparent (true zero, no faint tint) and
+   it fades in over AE_CLIP_SOFT index points. Tune these three numbers to taste. */
+const AE_SOUTH_MIN = 0.55, AE_CLIP_LO = 38, AE_CLIP_SOFT = 14;
+function aeSouth(lat) { const t = Math.max(0, Math.min(1, (lat - 26) / 16)); return AE_SOUTH_MIN + (1 - AE_SOUTH_MIN) * t * t * (3 - 2 * t); }
+const AE_LUT = Array.from({ length: 256 }, (_, q) => {
+  const v = q / 2.55, t = Math.max(0, Math.min(1, (v - AE_CLIP_LO) / AE_CLIP_SOFT));
+  return v <= AE_CLIP_LO ? 0 : t * t * (3 - 2 * t) * (0.3 + 0.55 * Math.pow(q / 255, 0.8));   // below the cut: nothing; above: front-like patches
+});
 const AE_PX = (() => {   // per-pixel geometry, built once
-  const sinLat = new Float32Array(AE_N), cosLat = new Float32Array(AE_N), lon = new Float32Array(AE_N), mask = new Float32Array(AE_N);
+  const south = new Float32Array(AE_N), sinLat = new Float32Array(AE_N), cosLat = new Float32Array(AE_N), lon = new Float32Array(AE_N), mask = new Float32Array(AE_N);
   const y0 = mercY(AE.lat0), y1 = mercY(AE.lat1), fx = new Float32Array(AE_N), fy = new Float32Array(AE_N);
   for (let py = 0; py < AE_H; py++) {
     const lat = invMercY(y1 - (py + 0.5) / AE_H * (y1 - y0));
     for (let px = 0; px < AE_W; px++) {
       const k = py * AE_W + px, ex = Math.min(px, AE_W - 1 - px) / (AE_W * 0.12), ey = Math.min(py, AE_H - 1 - py) / (AE_H * 0.16), e = Math.min(1, ex, ey);
-      sinLat[k] = Math.sin(lat * AE_RAD); cosLat[k] = Math.cos(lat * AE_RAD);
+      south[k] = aeSouth(lat); sinLat[k] = Math.sin(lat * AE_RAD); cosLat[k] = Math.cos(lat * AE_RAD);
       lon[k] = (AE.lon0 + (px + 0.5) / AE_W * (AE.lon1 - AE.lon0)) * AE_RAD;
       mask[k] = e * e * (3 - 2 * e);   // smoothstep fade so the field dissolves at the sampling border
       fx[k] = (px + 0.5) / AE_W * (AE.nx - 1); fy[k] = (lat - AE.lat0) / AE.step;
     }
   }
-  return { sinLat, cosLat, lon, mask, fx, fy };
+  return { south, sinLat, cosLat, lon, mask, fx, fy };
 })();
 
 /* ---------- Coast clip: show the field over the US and out to ~125 km offshore, nothing over Canada/Mexico or open ocean ----------
@@ -249,7 +257,7 @@ function aeInterpAt(i, tau, out) {   // Aether Index (0..100) at hour i + tau
   aeWarpBlend(ae.R[i], ae.R[i + 1], aeFlowFor(i), tau, ae.tmpR);
   for (let k = 0; k < AE_N; k++) ae.tmpK[k] = a * ae.K[i][k] + tau * ae.K[i + 1][k];
   aeSunField(ae.data.start + (ae.startIdx + i + tau) * 3600000 - 1800000, ae.tmpK, ae.tmpS);
-  for (let k = 0; k < AE_N; k++) out[k] = Math.max(0, Math.min(100, 100 * (ae.tmpR[k] + AE.wNight * ae.tmpS[k]) / ae.norm));
+  for (let k = 0; k < AE_N; k++) out[k] = Math.max(0, Math.min(100, AE_PX.south[k] * 100 * (ae.tmpR[k] + AE.wNight * ae.tmpS[k]) / ae.norm));
 }
 function aeLabel() {
   if (!ae.data) return;
@@ -332,9 +340,9 @@ function aetherInfoHtml(ll) {   // appended to the click popup so the field has 
   const ir = Math.round((ll.lng - AE.lon0) / AE.step), jr = Math.round((ll.lat - AE.lat0) / AE.step);
   if (ir < 0 || jr < 0 || ir >= AE.nx || jr >= AE.ny) return '';
   const p = jr * AE.nx + ir, h = ae.startIdx + Math.round(ae.t), d = ae.data;
-  const idx = aetherIndex(d.cape[p][h], d.sw[p][h], d.air[p][h], d.mode);
+  const idx = aeSouth(ll.lat) * aetherIndex(d.cape[p][h], d.sw[p][h], d.air[p][h], d.mode);
   const air = d.mode === 'pollen' ? ` · pollen ${d.air[p][h]} grains/m³` : d.mode === 'pm25' ? ` · PM2.5 ${d.air[p][h]} µg/m³` : '';
-  return `<div style="font-size:0.72rem;margin-top:6px;border-top:1px solid rgba(245,242,232,0.2);padding-top:4px"><b>Aether Index ≈ ${Math.round(idx)}</b> · ${document.getElementById('wx-time').textContent}<br>` +
+  return `<div style="font-size:0.72rem;margin-top:6px;border-top:1px solid rgba(245,242,232,0.2);padding-top:4px"><b>Aether Index ≈ ${Math.round(idx)}</b>${idx <= AE_CLIP_LO ? ' <i>(below the display cut-off — calm)</i>' : ''} · ${document.getElementById('wx-time').textContent}<br>` +
     `storm energy ${d.cape[p][h].toLocaleString()} J/kg · sunlight ${d.sw[p][h]} W/m² (less sun = higher index)${air}<br><i>nearest point of a coarse ${AE.step}° sample grid</i></div>`;
 }
 const wxCard = document.getElementById('wx-card');

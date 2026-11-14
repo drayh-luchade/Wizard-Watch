@@ -40,18 +40,11 @@
   </header>
   <div class="body">
     <div id="map">
-      <div id="bat-card">
-        <div class="wx-row"><button id="bat-play" aria-label="Play or pause the year-by-year view"></button><b id="bat-year">—</b><select id="bat-sp" aria-label="Bat species"></select></div>
-        <input type="range" id="bat-slider" min="0" max="9" step="0.01" value="0" aria-label="Year">
-        <div class="bat-bar"></div>
-        <div class="wx-ticks"><span>0%</span><span>MODELED SUMMER OCCUPANCY</span><span>100%</span></div>
-        <div id="bat-note"></div><div class="bat-status" id="bat-status"></div>
-      </div>
       <div id="wx-card">
         <div class="wx-row"><button id="wx-play" aria-label="Play or pause the 24-hour loop"></button><b id="wx-time">—</b><span id="wx-comps"></span></div>
         <input type="range" id="wx-slider" min="0" max="24" step="0.05" value="0" aria-label="Hours ahead">
         <div class="wx-bar"></div>
-        <div class="wx-ticks"><span>calm</span><span>AETHER INDEX · next 24 h</span><span>surging</span></div>
+        <div class="wx-ticks"><span>cut-off (calm = blank)</span><span>AETHER INDEX · next 24 h</span><span>surging</span></div>
       </div>
     </div>
     <aside>
@@ -59,11 +52,11 @@
       <div class="layer">
         <input type="checkbox" id="toggle-baseline" checked>
         <div style="flex:1"><label for="toggle-baseline"><span class="swatch" style="background:var(--baseline-hi)"></span>Baseline Habitat</label>
-        <p>Wizard density per km². Real USDA state figures (forest cover, cattle density, karst regions) are redistributed dasymetrically using rivers, lakes, coast, remoteness from cities and national-park land, rendered as soft density blobs rather than traced waterways. Biodiversity richness isn't in yet.
+        <p>Wizard density per km². Real USDA state figures (forest cover, cattle density, karst regions) are spread across each state by remoteness from cities and national-park land, with only a light touch from rivers, lakes and coast. Weak spots are cut to nothing, so the map is patchy and blank wherever the habitat is thin. Hot spots also get a lift from places where real bats turn up most: the USGS North American Bat Monitoring Program's modeled summer occupancy, averaged over 2010–2019 and counted inside US states only. Biodiversity richness isn't in yet.
         <br>○ Thaum reading (sampled from the density field) &nbsp; □ Coven/academy site (local density peak) — both illustrative, not real measurements.</p>
         <div class="colorbar">
-          <div class="colorbar-gradient"></div>
-          <div class="colorbar-labels"><span>0 /km²</span><span>~100 /km²</span></div>
+          <div class="colorbar-gradient" style="background:linear-gradient(90deg,#8054bc 0%,#b078c8 50%,#ffe296 100%)"></div>
+          <div class="colorbar-labels"><span>~25 /km²</span><span>blank = none</span><span>~100 /km²</span></div>
         </div>
         <span class="status">real USDA data + Natural Earth habitat layers, US only</span></div>
       </div>
@@ -106,17 +99,10 @@
       <div class="layer">
         <input type="checkbox" id="toggle-aether" checked>
         <div style="flex:1"><label for="toggle-aether"><span class="icon-aether"></span>Aether Index</label>
-        <p>An invented "magical charge" built from three real ingredients and animated over the next 24 hours: storm energy (CAPE), darkness (the absence of downward sunlight, so it peaks at night when wizards are about) and airborne pollen — or PM2.5 where pollen data isn't available. Blue = calm, red = surging. Shown over the US and out to about 125 km offshore. Between hours the pattern glides along its estimated motion instead of fading, and the day/night line moves at the sun's true pace. The formula is made up; the inputs are real. Click the map for the numbers behind a spot.</p>
-        <div class="colorbar"><div class="colorbar-gradient" style="background:linear-gradient(90deg,#000080 0%,#0000ff 11%,#00ffff 37.5%,#7fff7f 50%,#ffff00 62.5%,#ff0000 89%,#800000 100%)"></div>
-          <div class="colorbar-labels"><span>0</span><span>Aether Index</span><span>100</span></div></div>
+        <p>An invented "magical charge" built from three real ingredients and animated over the next 24 hours: storm energy (CAPE), darkness (the absence of downward sunlight, so it peaks at night when wizards are about) and airborne pollen — or PM2.5 where pollen data isn't available. Blue = moderate, red = surging; calm places are left blank, so only the active patches show, like fronts. The sunnier south is damped so it doesn't crowd out the north. Shown over the US and out to about 125 km offshore. Between hours the pattern glides along its estimated motion instead of fading, and the day/night line moves at the sun's true pace. The formula is made up; the inputs are real. Click the map for the numbers behind a spot.</p>
+        <div class="colorbar"><div class="colorbar-gradient" style="background:linear-gradient(90deg,#0b3cff 0%,#00ffff 22%,#7fff7f 38%,#ffff00 58%,#ff0000 82%,#800000 100%)"></div>
+          <div class="colorbar-labels"><span>38 (cut-off)</span><span>Aether Index</span><span>100</span></div></div>
         <span class="status live" id="aether-status">loading live data…</span></div>
-      </div>
-      <div class="layer">
-        <input type="checkbox" id="toggle-bats">
-        <div style="flex:1"><label for="toggle-bats"><span class="icon-bat"></span>Familiars (bats)</label>
-        <p>Wizards' nocturnal familiars, played by real bats: the USGS North American Bat Monitoring Program's modeled summer occupancy (the chance a species is present) for each 10 km cell, year by year. This is modeled history through 2019, not live data. Brighter = more likely; faded cells are less certain. Little brown, northern long-eared and tricolored bats cover 2010–2019, the years white-nose syndrome hit them; other species start in 2016. Click the map for a spot's numbers.</p>
-        <div class="colorbar"><div class="colorbar-gradient" style="background:linear-gradient(90deg,#1b1450 0%,#5b2a9e 25%,#b33db5 50%,#f08a4b 75%,#ffe08a 100%)"></div>
-          <div class="colorbar-labels"><span>0%</span><span>occupancy</span><span>100%</span></div></div></div>
       </div>
       <div class="layer">
         <input type="checkbox" id="toggle-birdflow" checked>
@@ -129,7 +115,7 @@
         <p>Where it is dark right now, computed from the clock — useful context, since these birds migrate at night.</p></div>
       </div>
       <div class="legend-note">
-        Baseline: real USDA state data spread across each state with Natural Earth habitat layers (US only; no biodiversity term yet). Anomalies and warnings are live — NWS alerts every 2 minutes, Open-Meteo every 30 — and nothing live is stored; it's fetched in your browser each visit. Zone shapes are only as detailed as the 43-station network. Basemap is a stylized outline, not geographically precise. Watershed boundaries: Commission for Environmental Cooperation (CEC) 2010, North American Environmental Atlas – Watersheds, NRCan/INEGI/USGS, CC BY 4.0. Weather data by Open-Meteo.com (CC BY 4.0). Bat occupancy: USGS North American Bat Monitoring Program, Status and Trends of North American Bats: Summer Occupancy Analysis 2010–2019 data release (public domain). Moon phase and day/night shading are computed locally and are approximate. Bird migration data: Purdue AeroEco Lab (aeroecolab.com), derived from NEXRAD weather radar (Van Doren &amp; Horton 2018, <i>Science</i> 361:1115–1118).
+        Baseline: real USDA state data spread across each state with Natural Earth habitat layers and averaged USGS NABat bat occupancy (US states only; no biodiversity term yet). Anomalies and warnings are live — NWS alerts every 2 minutes, Open-Meteo every 30 — and nothing live is stored; it's fetched in your browser each visit. Zone shapes are only as detailed as the 43-station network. Basemap is a stylized outline, not geographically precise. Watershed boundaries: Commission for Environmental Cooperation (CEC) 2010, North American Environmental Atlas – Watersheds, NRCan/INEGI/USGS, CC BY 4.0. Weather data by Open-Meteo.com (CC BY 4.0). Bat occupancy: USGS North American Bat Monitoring Program, Status and Trends of North American Bats: Summer Occupancy Analysis 2010–2019 data release (public domain). Moon phase and day/night shading are computed locally and are approximate. Bird migration data: Purdue AeroEco Lab (aeroecolab.com), derived from NEXRAD weather radar (Van Doren &amp; Horton 2018, <i>Science</i> 361:1115–1118).
       </div>
     </aside>
     <div id="moon-card"><span id="moon-icon"></span><div><b id="moon-name">Moon</b><span id="moon-detail"></span></div></div>
@@ -158,7 +144,6 @@
 <script src="js/50-birds.js"></script>
 <script src="js/60-birdflow-sky.js"></script>
 <script src="js/70-aether.js"></script>
-<script src="js/75-bats.js"></script>
 <script src="js/80-toggles.js"></script>
 </body>
 </html>

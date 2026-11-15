@@ -46,8 +46,11 @@ map.setView([39, -95], 4); // settle on a continental-US view
    NOT included yet: biodiversity richness (the pipeline accepts richness rasters when available). */
 
 function greyRGB(t) {                       // t in 0..1 -> [r,g,b], matches the sidebar colorbar
-  const lo = [128, 84, 188], mid = [176, 120, 200], hi = [255, 226, 150], a = t < 0.5 ? lo : mid, b = t < 0.5 ? mid : hi, f = t < 0.5 ? t * 2 : t * 2 - 1;
-  return [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * f));
+  // Grand Budapest light-to-dark ramp: peach -> coral -> burnt orange -> maroon (dense = dark)
+  const S = [[0, [235, 175, 102]], [0.36, [248, 76, 85]], [0.68, [201, 95, 42]], [1, [74, 20, 20]]];
+  let k = 1; while (k < S.length - 1 && t > S[k][0]) k++;
+  const a = S[k - 1], b = S[k], f = Math.max(0, Math.min(1, (t - a[0]) / (b[0] - a[0])));
+  return [0, 1, 2].map(i => Math.round(a[1][i] + (b[1][i] - a[1][i]) * f));
 }
 const mercY = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
 const invMercY = y => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180 / Math.PI;
@@ -77,9 +80,9 @@ function buildDensityOverlay(key) {
         sv += v * wgt; sw += wgt;
       }
       if (sw < 0.5) continue;
-      const t = Math.min(1, Math.max(0, (sv / sw - 1) / 253)), c = greyRGB(t), o = (py * W + px) * 4;
+      const t = Math.min(1, Math.max(0, (sv / sw - 1) / 253)), c = greyRGB(Math.min(1, Math.max(0, (t * 100 - 25) / 65))), o = (py * W + px) * 4;   // colour spans ~25-90 wizards/km², where the data actually lives
       img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2];
-      img.data[o + 3] = Math.round(170 + t * 85);   // zeros are skipped (fully clear); what remains glows by density
+      img.data[o + 3] = Math.round(190 + t * 65);   // zeros are skipped (fully clear); what remains glows by density
     }
   }
   ctx.putImageData(img, 0, 0);

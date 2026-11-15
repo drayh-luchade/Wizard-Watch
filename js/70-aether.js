@@ -69,11 +69,11 @@ const AE_RAD = Math.PI / 180;
 /* Southern detractor + low-end clip. The index is scaled by a latitude factor (AE_SOUTH_MIN at 26°N and below, rising to 1 by 42°N)
    so the sunnier, stormier south doesn't dominate; then anything under AE_CLIP_LO is fully transparent (true zero, no faint tint) and
    it fades in over AE_CLIP_SOFT index points. Tune these three numbers to taste. */
-const AE_SOUTH_MIN = 0.55, AE_CLIP_LO = 38, AE_CLIP_SOFT = 14;
+const AE_SOUTH_MIN = 0.8, AE_CLIP_LO = 35, AE_CLIP_SOFT = 12;
 function aeSouth(lat) { const t = Math.max(0, Math.min(1, (lat - 26) / 16)); return AE_SOUTH_MIN + (1 - AE_SOUTH_MIN) * t * t * (3 - 2 * t); }
 const AE_LUT = Array.from({ length: 256 }, (_, q) => {
   const v = q / 2.55, t = Math.max(0, Math.min(1, (v - AE_CLIP_LO) / AE_CLIP_SOFT));
-  return v <= AE_CLIP_LO ? 0 : t * t * (3 - 2 * t) * (0.3 + 0.55 * Math.pow(q / 255, 0.8));   // below the cut: nothing; above: front-like patches
+  return v <= AE_CLIP_LO ? 0 : t * t * (3 - 2 * t) * (0.5 + 0.45 * Math.pow(q / 255, 0.8));   // below the cut: nothing; above: front-like patches
 });
 const AE_PX = (() => {   // per-pixel geometry, built once
   const south = new Float32Array(AE_N), sinLat = new Float32Array(AE_N), cosLat = new Float32Array(AE_N), lon = new Float32Array(AE_N), mask = new Float32Array(AE_N);

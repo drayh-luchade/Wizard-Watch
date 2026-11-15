@@ -1,4 +1,4 @@
-  @font-face{
+@font-face{
     font-family:'Belwe';
     src: local('Belwe'), local('ITC Belwe'), local('Belwe Bd BT');
     font-weight: 700;
@@ -8,7 +8,7 @@
     --gold:#E8B84B; --gold-soft:#C9A24B; --white:#F5F2E8;
     --land:#1A2A6C; --land-line:#5B4A9E;
     --warn:#FF3B3B; --anomaly:#FF3B3B;
-    --baseline-lo:#8054bc; --baseline-hi:#b078c8;
+    --baseline-lo:#EBAF66; --baseline-hi:#4A1414;
   }
   *{box-sizing:border-box;}
   /* position:fixed (not just overflow:hidden) so focusing the Leaflet map — which is
@@ -195,4 +195,3 @@
   #cmp-card .cmp-msg{margin-top:6px;color:var(--gold);}
   .cmp-add{font:inherit;font-size:0.72rem;padding:2px 8px;border-radius:6px;border:1px solid rgba(232,184,75,0.6);background:rgba(232,184,75,0.12);color:inherit;cursor:pointer;}
   @media (max-width:720px){ #cmp-card{right:12px;top:56px;} }
-
